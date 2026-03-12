@@ -23,7 +23,9 @@ function PuzzleLayer({
   textureUrl,
   showWireframe,
   colorMap,
-  smoothOptions
+  smoothOptions,
+  referenceZ,
+  bottomZFixed
 }: {
   topSurface: THREE.Vector3[];
   bottomSurface: THREE.Vector3[];
@@ -39,6 +41,8 @@ function PuzzleLayer({
   showWireframe: boolean;
   colorMap: 'none' | 'rainbow' | 'viridis' | 'magma';
   smoothOptions?: { enabled: boolean; iterations: number };
+  referenceZ?: number;
+  bottomZFixed?: number;
 }) {
   const texture = useMemo(() => {
     if (!textureUrl) return null;
@@ -63,7 +67,9 @@ function PuzzleLayer({
       exaggeration,
       isTimeScale,
       averageVelocity,
-      smoothOptions
+      smoothOptions,
+      referenceZ,
+      bottomZFixed
     );
 
     if (colorMap !== 'none') {
@@ -161,33 +167,37 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
   const rawClearance = clearance / scaleZ;
   const rawBaseThickness = baseThicknessMm / scaleZ;
 
+  // Determine direction and reference Z for stable exaggeration
+  const convertZRaw = (z: number) => {
+    return isTimeScale ? (z * averageVelocity) / 2 : z;
+  };
+  const firstZ = convertZRaw(croppedSurfaces[0][0].z);
+  const secondZ = convertZRaw(croppedSurfaces[1]?.[0]?.z ?? firstZ + 1);
+  const directionUp = Math.sign(firstZ - secondZ) || -1;
+
+  const lastSurf = croppedSurfaces[croppedSurfaces.length - 1];
+  const refRawZ = directionUp < 0 
+    ? Math.max(...lastSurf.map(p => p.z))
+    : Math.min(...lastSurf.map(p => p.z));
+  
+  const exaggerationRefZ = refRawZ;
+  const refDepth = isTimeScale ? (exaggerationRefZ * averageVelocity) / 2 : exaggerationRefZ;
+
   // Prepare all surfaces including the flat base
   const allSurfaces = [...croppedSurfaces];
+  let bottomZFixedValue: number | undefined = undefined;
+
   if (showBasePlate) {
-    const lastSurface = croppedSurfaces[croppedSurfaces.length - 1];
-    const zFactor = (isTimeScale ? (averageVelocity / 2) : 1) * verticalExaggeration;
+    // We want the bottom plane to be at a fixed distance from the reference point
+    // regardless of exaggeration.
+    // The reference point's exaggerated position is refDepth.
+    // In depth mode (directionUp < 0), "down" is +Z.
+    // In elevation mode (directionUp > 0), "down" is -Z.
+    // So bottomZFixed = refDepth - directionUp * rawBaseThickness
+    bottomZFixedValue = refDepth - directionUp * (rawBaseThickness);
     
-    // Determine direction: if first surface Z < second surface Z, Z is depth (increases downwards)
-    const convertZ = (z: number) => {
-      let depth = isTimeScale ? (z * averageVelocity) / 2 : z;
-      return depth * verticalExaggeration;
-    };
-    const firstZ = convertZ(croppedSurfaces[0][0].z);
-    const secondZ = convertZ(croppedSurfaces[1]?.[0]?.z ?? firstZ + 1);
-    const directionUp = Math.sign(firstZ - secondZ) || -1;
-    
-    let flatZ;
-    if (directionUp < 0) {
-      // Z is depth. "Below" means larger Z.
-      const maxRawZ = Math.max(...lastSurface.map(p => p.z));
-      flatZ = maxRawZ + (rawBaseThickness / zFactor);
-    } else {
-      // Z is elevation. "Below" means smaller Z.
-      const minRawZ = Math.min(...lastSurface.map(p => p.z));
-      flatZ = minRawZ - (rawBaseThickness / zFactor);
-    }
-    
-    const flatBaseSurface = lastSurface.map(p => new THREE.Vector3(p.x, p.y, flatZ));
+    // We still need a surface for the "bottom" to define the layer
+    const flatBaseSurface = lastSurf.map(p => new THREE.Vector3(p.x, p.y, refRawZ));
     allSurfaces.push(flatBaseSurface);
   }
 
@@ -241,6 +251,8 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           }}
           showWireframe={showWireframe}
           colorMap={colorMap}
+          referenceZ={exaggerationRefZ}
+          bottomZFixed={isFlatBaseLayer ? bottomZFixedValue : undefined}
         />
       </group>
     );
@@ -288,14 +300,11 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     
     const convertZ = (z: number) => {
       let depth = isTimeScale ? (z * averageVelocity) / 2 : z;
-      return depth * verticalExaggeration;
+      return (depth - refDepth) * verticalExaggeration + refDepth;
     };
-    const firstZ = convertZ(croppedSurfaces[0][0].z);
-    const secondZ = convertZ(croppedSurfaces[1]?.[0]?.z ?? firstZ + 1);
-    const directionUp = Math.sign(firstZ - secondZ) || -1;
     
-    // The flat base has a constant Z
-    const baseZ = convertZ(modelBaseBottomSurface[0].z);
+    // The flat base has a constant Z (it's bottomZFixedValue)
+    const baseZ = bottomZFixedValue!;
     
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;

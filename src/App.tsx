@@ -602,7 +602,7 @@ export default function App() {
                     </label>
                     <input
                       type="range"
-                      min="2"
+                      min="1"
                       max="50"
                       step="1"
                       value={baseThicknessMm}

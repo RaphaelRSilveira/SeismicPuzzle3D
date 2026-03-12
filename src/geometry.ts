@@ -10,7 +10,9 @@ export function createLayerGeometry(
   exaggeration: number,
   isTimeScale: boolean,
   averageVelocity: number,
-  smoothOptions?: { enabled: boolean; iterations: number }
+  smoothOptions?: { enabled: boolean; iterations: number },
+  referenceZ?: number,
+  bottomZFixed?: number
 ) {
   const vertices = [];
   const uvs = [];
@@ -18,6 +20,10 @@ export function createLayerGeometry(
 
   const convertZ = (z: number) => {
     let depth = isTimeScale ? (z * averageVelocity) / 2 : z;
+    if (referenceZ !== undefined) {
+      const refDepth = isTimeScale ? (referenceZ * averageVelocity) / 2 : referenceZ;
+      return (depth - refDepth) * exaggeration + refDepth;
+    }
     return depth * exaggeration;
   };
 
@@ -71,7 +77,8 @@ export function createLayerGeometry(
     for (let x = 0; x < gridWidth; x++) {
       const idx = y * gridWidth + x;
       const p = finalPointsBottom[idx];
-      vertices.push(p.x, p.y, convertZ(p.z) + clearanceBottom);
+      const z = bottomZFixed !== undefined ? bottomZFixed : convertZ(p.z);
+      vertices.push(p.x, p.y, z + clearanceBottom);
       uvs.push(x / (gridWidth - 1), y / (gridHeight - 1));
     }
   }
