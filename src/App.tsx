@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore } from './store';
 import { parseFile, createCommonGrid } from './parser';
 import { Viewer } from './Viewer';
@@ -78,6 +78,10 @@ export default function App() {
     generateExample,
     clear
   } = useAppStore();
+
+  useEffect(() => {
+    document.title = "SeismicPuzzle3D";
+  }, []);
 
   const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
