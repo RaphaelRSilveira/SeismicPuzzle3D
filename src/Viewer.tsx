@@ -119,7 +119,7 @@ function PuzzleLayer({
 }
 
 export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
-  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, surfaceColors, surfaceTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief } = useAppStore();
+  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, surfaceColors, surfaceTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, basePieceColor } = useAppStore();
 
   if (surfaces.length === 0) return null;
 
@@ -213,7 +213,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 
     const isFlatBaseLayer = showBasePlate && i === numLayers - 1;
     
-    const layerColor = surfaceColors[i] || '#3b82f6';
+    const layerColor = isFlatBaseLayer ? basePieceColor : (surfaceColors[i] || '#3b82f6');
     const textureKey = isFlatBaseLayer ? 'none' : (surfaceTextures[i] as keyof typeof LITHOLOGY_TEXTURES || 'none');
     const textureUrl = LITHOLOGY_TEXTURES[textureKey];
 
@@ -355,9 +355,12 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
         
         {/* Legend */}
         <group position={[textStartX, bpHeight / 2 - 8 * textScale, textZ]}>
-          {surfaceNames.slice(0, visibleLayers.length).map((name, idx) => {
-            if (!visibleLayers[idx]) return null;
-            const color = surfaceColors[idx] || '#ffffff';
+          {visibleLayers.map((visible, idx) => {
+            if (!visible) return null;
+            const isBaseLayer = showBasePlate && idx === visibleLayers.length - 1;
+            const name = isBaseLayer ? basePieceName : (surfaceNames[idx] || `Peça ${idx + 1}`);
+            const color = isBaseLayer ? basePieceColor : (surfaceColors[idx] || '#ffffff');
+            
             return (
               <group key={`legend-${idx}`} position={[0, -idx * 6 * textScale, 0]}>
                 <mesh position={[0, 2 * textScale, textRelief / 2]}>

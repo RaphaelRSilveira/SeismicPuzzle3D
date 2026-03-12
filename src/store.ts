@@ -39,6 +39,8 @@ export interface AppState {
   basePlatePadding: number;
   basePlateThicknessMm: number;
   basePlateTextRelief: number;
+  basePieceName: string;
+  basePieceColor: string;
   
   setSurfaces: (surfaces: THREE.Vector3[][], names: string[], width: number, height: number, isTime: boolean, dataMaxDim: number, dataWidth: number, dataHeight: number) => void;
   setSurfaceName: (index: number, name: string) => void;
@@ -67,6 +69,8 @@ export interface AppState {
   setBasePlatePadding: (v: number) => void;
   setBasePlateThicknessMm: (v: number) => void;
   setBasePlateTextRelief: (v: number) => void;
+  setBasePieceName: (v: string) => void;
+  setBasePieceColor: (v: string) => void;
   generateExample: () => void;
   clear: () => void;
 }
@@ -109,6 +113,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   basePlatePadding: 20,
   basePlateThicknessMm: 5,
   basePlateTextRelief: 1,
+  basePieceName: 'Base do Modelo',
+  basePieceColor: '#4b5563',
 
   setSurfaces: (surfaces, names, gridWidth, gridHeight, isTimeScale, dataMaxDimension, dataWidth, dataHeight) => {
     const defaultColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
@@ -198,6 +204,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setBasePlatePadding: (basePlatePadding) => set({ basePlatePadding }),
   setBasePlateThicknessMm: (basePlateThicknessMm) => set({ basePlateThicknessMm }),
   setBasePlateTextRelief: (basePlateTextRelief) => set({ basePlateTextRelief }),
+  setBasePieceName: (basePieceName) => set({ basePieceName }),
+  setBasePieceColor: (basePieceColor) => set({ basePieceColor }),
   
   generateExample: () => {
     const gridWidth = 50;

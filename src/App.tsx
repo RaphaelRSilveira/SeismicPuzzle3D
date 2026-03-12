@@ -71,6 +71,10 @@ export default function App() {
     setBasePlateThicknessMm,
     basePlateTextRelief,
     setBasePlateTextRelief,
+    basePieceName,
+    setBasePieceName,
+    basePieceColor,
+    setBasePieceColor,
     generateExample,
     clear
   } = useAppStore();
@@ -327,18 +331,38 @@ export default function App() {
                     const nameBottom = isBaseLayer ? 'Limite Inferior (Plano)' : (surfaceNames[idx+1] || 'Superfície ' + (idx + 1));
                     
                     return (
-                      <div key={idx} className="flex items-center justify-between group">
-                        <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer hover:text-zinc-200 transition-colors flex-1 min-w-0">
-                          <input 
-                            type="checkbox" 
-                            checked={visible} 
-                            onChange={() => toggleLayerVisibility(idx)}
-                            className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
-                          />
-                          <span className="truncate">
-                            {isBaseLayer ? 'Base do Modelo' : `Peça ${idx + 1}`}: {nameTop} → {nameBottom}
-                          </span>
-                        </label>
+                      <div key={idx} className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between group">
+                          <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer hover:text-zinc-200 transition-colors flex-1 min-w-0">
+                            <input 
+                              type="checkbox" 
+                              checked={visible} 
+                              onChange={() => toggleLayerVisibility(idx)}
+                              className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
+                            />
+                            <span className="truncate">
+                              {isBaseLayer ? 'Base do Modelo' : `Peça ${idx + 1}`}: {nameTop} → {nameBottom}
+                            </span>
+                          </label>
+                        </div>
+                        {isBaseLayer && (
+                          <div className="flex items-center gap-2 ml-6">
+                            <input
+                              type="text"
+                              value={basePieceName}
+                              onChange={(e) => setBasePieceName(e.target.value)}
+                              className="bg-transparent border-b border-zinc-700 hover:border-zinc-600 focus:border-emerald-500 focus:outline-none text-xs text-zinc-400 flex-1 min-w-0 px-1 py-0.5 transition-colors"
+                              placeholder="Nome da peça base"
+                            />
+                            <input 
+                              type="color" 
+                              value={basePieceColor} 
+                              onChange={(e) => setBasePieceColor(e.target.value)}
+                              className="w-4 h-4 rounded-full overflow-hidden border border-zinc-700 p-0 cursor-pointer bg-transparent"
+                              title="Cor da peça base"
+                            />
+                          </div>
+                        )}
                       </div>
                     );
                   })}
