@@ -27,7 +27,6 @@ export interface AppState {
   cropXMax: number;
   cropYMin: number;
   cropYMax: number;
-  showPins: boolean;
   showWireframe: boolean;
   explodedView: boolean;
   colorMap: 'none' | 'rainbow' | 'viridis' | 'magma';
@@ -38,6 +37,7 @@ export interface AppState {
   basePlateSubtitle: string;
   basePlateColor: string;
   basePlatePadding: number;
+  basePlateThicknessMm: number;
   basePlateTextRelief: number;
   
   setSurfaces: (surfaces: THREE.Vector3[][], names: string[], width: number, height: number, isTime: boolean, dataMaxDim: number, dataWidth: number, dataHeight: number) => void;
@@ -55,7 +55,6 @@ export interface AppState {
   setBaseThicknessMm: (v: number) => void;
   setCropX: (min: number, max: number) => void;
   setCropY: (min: number, max: number) => void;
-  setShowPins: (v: boolean) => void;
   setShowWireframe: (v: boolean) => void;
   setExplodedView: (v: boolean) => void;
   setColorMap: (v: 'none' | 'rainbow' | 'viridis' | 'magma') => void;
@@ -66,6 +65,7 @@ export interface AppState {
   setBasePlateSubtitle: (v: string) => void;
   setBasePlateColor: (v: string) => void;
   setBasePlatePadding: (v: number) => void;
+  setBasePlateThicknessMm: (v: number) => void;
   setBasePlateTextRelief: (v: number) => void;
   generateExample: () => void;
   clear: () => void;
@@ -97,7 +97,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   cropXMax: 100,
   cropYMin: 0,
   cropYMax: 100,
-  showPins: true,
   showWireframe: false,
   explodedView: false,
   colorMap: 'none',
@@ -108,6 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   basePlateSubtitle: 'Escala: 1:1000',
   basePlateColor: '#27272a',
   basePlatePadding: 20,
+  basePlateThicknessMm: 5,
   basePlateTextRelief: 1,
 
   setSurfaces: (surfaces, names, gridWidth, gridHeight, isTimeScale, dataMaxDimension, dataWidth, dataHeight) => {
@@ -178,7 +178,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   setBaseThicknessMm: (baseThicknessMm) => set({ baseThicknessMm }),
   setCropX: (min, max) => set({ cropXMin: min, cropXMax: max }),
   setCropY: (min, max) => set({ cropYMin: min, cropYMax: max }),
-  setShowPins: (showPins) => set({ showPins }),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
   setExplodedView: (explodedView) => set({ explodedView }),
   setColorMap: (colorMap) => set({ colorMap }),
@@ -197,6 +196,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setBasePlateSubtitle: (basePlateSubtitle) => set({ basePlateSubtitle }),
   setBasePlateColor: (basePlateColor) => set({ basePlateColor }),
   setBasePlatePadding: (basePlatePadding) => set({ basePlatePadding }),
+  setBasePlateThicknessMm: (basePlateThicknessMm) => set({ basePlateThicknessMm }),
   setBasePlateTextRelief: (basePlateTextRelief) => set({ basePlateTextRelief }),
   
   generateExample: () => {

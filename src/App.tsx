@@ -43,8 +43,6 @@ export default function App() {
     setBaseThicknessMm,
     setCropX,
     setCropY,
-    showPins,
-    setShowPins,
     surfaceColors,
     setSurfaceColor,
     surfaceTextures,
@@ -69,6 +67,8 @@ export default function App() {
     setBasePlateColor,
     basePlatePadding,
     setBasePlatePadding,
+    basePlateThicknessMm,
+    setBasePlateThicknessMm,
     basePlateTextRelief,
     setBasePlateTextRelief,
     generateExample,
@@ -623,6 +623,22 @@ export default function App() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400 flex justify-between">
+                      Espessura do Suporte (mm)
+                      <span className="text-zinc-500 font-mono">{basePlateThicknessMm}mm</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="1"
+                      max="20"
+                      step="1"
+                      value={basePlateThicknessMm}
+                      onChange={(e) => setBasePlateThicknessMm(parseFloat(e.target.value))}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-zinc-400 flex justify-between">
                       Relevo do Texto (mm)
                       <span className="text-zinc-500 font-mono">{basePlateTextRelief}mm</span>
                     </label>
@@ -647,27 +663,6 @@ export default function App() {
                   </div>
                 </div>
               )}
-            </div>
-
-            <div className="pt-4 border-t border-zinc-800 flex flex-col gap-4">
-              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Quebra-Cabeça</h3>
-              
-              <label className="flex items-center gap-3 text-sm text-zinc-300 cursor-pointer group">
-                <div className="relative">
-                  <input
-                    type="checkbox"
-                    checked={showPins}
-                    onChange={(e) => setShowPins(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-10 h-5 bg-zinc-800 rounded-full peer peer-checked:bg-emerald-600 transition-colors"></div>
-                  <div className="absolute left-1 top-1 w-3 h-3 bg-zinc-400 rounded-full peer-checked:translate-x-5 peer-checked:bg-white transition-transform"></div>
-                </div>
-                Pinos de Alinhamento
-              </label>
-              <p className="text-xs text-zinc-500">
-                O tamanho dos pinos é calculado automaticamente com base na espessura de cada camada.
-              </p>
             </div>
 
             <div className="pt-4 border-t border-zinc-800 flex flex-col gap-4">

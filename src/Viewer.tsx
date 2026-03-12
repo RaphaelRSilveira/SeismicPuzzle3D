@@ -37,7 +37,6 @@ function PuzzleLayer({
   averageVelocity: number;
   color: string;
   textureUrl?: string | null;
-  pinOptions?: { show: boolean; scale: number; showPin?: boolean; showHole?: boolean; pointsTopAbove?: THREE.Vector3[] };
   showWireframe: boolean;
   colorMap: 'none' | 'rainbow' | 'viridis' | 'magma';
   smoothOptions?: { enabled: boolean; iterations: number };
@@ -65,7 +64,6 @@ function PuzzleLayer({
       exaggeration,
       isTimeScale,
       averageVelocity,
-      pinOptions,
       smoothOptions
     );
 
@@ -103,7 +101,7 @@ function PuzzleLayer({
     }
 
     return geom;
-  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, pinOptions, colorMap]);
+  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap]);
 
   return (
     <mesh geometry={geometry} castShadow receiveShadow>
@@ -122,7 +120,7 @@ function PuzzleLayer({
 }
 
 export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
-  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, surfaceColors, surfaceTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showPins, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateTextRelief } = useAppStore();
+  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, surfaceColors, surfaceTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief } = useAppStore();
 
   if (surfaces.length === 0) return null;
 
@@ -238,13 +236,6 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           averageVelocity={averageVelocity}
           color={layerColor}
           textureUrl={textureUrl}
-          pinOptions={{
-            show: showPins,
-            scale: scaleZ,
-            showPin: i > 0, // No pin on the very top of the model
-            showHole: showBasePlate ? true : i < numLayers - 1, // Hole on the bottom if there's a base plate
-            pointsTopAbove: topSurfaceAbove
-          }}
           smoothOptions={{
             enabled: smoothMesh,
             iterations: smoothIterations
@@ -266,17 +257,32 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 
     const maxLegendNameLength = Math.max(0, ...surfaceNames.slice(0, visibleLayers.length).filter((_, i) => visibleLayers[i]).map(n => n.length));
     const requiredLegendWidth = (4 + maxLegendNameLength * 3 * 0.75 + 8) * textScale;
+    const requiredLegendHeight = visibleLayers.filter(Boolean).length * 6 * textScale;
+
     const titleWidth = (basePlateTitle.length * 8 * 0.75) * textScale;
     const subtitleWidth = (basePlateSubtitle.length * 4 * 0.75) * textScale;
     const requiredTitleWidth = Math.max(titleWidth, subtitleWidth) + 8 * textScale;
+    const requiredTitleHeight = (basePlateTitle ? 10 * textScale : 0) + (basePlateSubtitle ? 6 * textScale : 0);
 
-    const minPaddingX = Math.max(requiredLegendWidth, requiredTitleWidth);
-    const actualPaddingLeft = Math.max(userPaddingX, minPaddingX);
-    const actualPaddingRight = userPaddingX;
+    const actualPaddingTop = Math.max(userPaddingY, requiredLegendHeight + 8 * textScale);
+    const actualPaddingBottom = Math.max(userPaddingY, requiredTitleHeight + 8 * textScale);
+    
+    // Ensure the base plate is wide enough for the text
+    const minRequiredWidth = Math.max(requiredLegendWidth, requiredTitleWidth) + 8 * textScale;
+    const currentWidth = croppedDataWidth + userPaddingX * 2;
+    
+    let actualPaddingLeft = userPaddingX;
+    let actualPaddingRight = userPaddingX;
+    
+    if (currentWidth < minRequiredWidth) {
+      const extra = minRequiredWidth - currentWidth;
+      // Distribute extra width to keep puzzle centered if possible, or just add to right
+      actualPaddingRight += extra;
+    }
 
     const bpWidth = croppedDataWidth + actualPaddingLeft + actualPaddingRight;
-    const bpHeight = croppedDataHeight + userPaddingY * 2;
-    const bpThickness = 5 / scaleZ; // 5mm thick base plate
+    const bpHeight = croppedDataHeight + actualPaddingTop + actualPaddingBottom;
+    const bpThickness = basePlateThicknessMm / scaleZ;
     
     const modelBaseTopSurface = allSurfaces[allSurfaces.length - 2];
     const modelBaseBottomSurface = allSurfaces[allSurfaces.length - 1];
@@ -296,7 +302,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     const centerY = (minY + maxY) / 2;
     
     const bpCenterX = centerX + (actualPaddingRight - actualPaddingLeft) / 2;
-    const bpCenterY = centerY;
+    const bpCenterY = centerY + (actualPaddingTop - actualPaddingBottom) / 2;
     
     const bpExplodedOffset = explodedView ? - (modelSizeMm * 0.2) / scaleZ : 0;
     
@@ -305,50 +311,6 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     const centerZ = baseZ - directionUp * (bpThickness / 2) + bpExplodedOffset;
 
     const fontUrl = 'https://unpkg.com/three@0.160.0/examples/fonts/helvetiker_regular.typeface.json';
-
-    // Calculate dynamic pin height based on the thickness of the model base piece
-    const nominalPinHeight = 4 / scaleZ;
-    const nominalPinRadius = 2 / scaleZ;
-    const pinRadius = nominalPinRadius;
-    
-    // Find the minimum thickness of the model base piece at the 4 corners to ensure pins don't bottom out
-    const inset = 0.15;
-    const cornerIndices = [
-      { x: Math.floor(croppedGridWidth * inset), y: Math.floor(croppedGridHeight * inset) },
-      { x: Math.floor(croppedGridWidth * (1 - inset)), y: Math.floor(croppedGridHeight * inset) },
-      { x: Math.floor(croppedGridWidth * inset), y: Math.floor(croppedGridHeight * (1 - inset)) },
-      { x: Math.floor(croppedGridWidth * (1 - inset)), y: Math.floor(croppedGridHeight * (1 - inset)) }
-    ];
-    
-    let minLocalThickness = Infinity;
-    cornerIndices.forEach(corner => {
-      const idx = corner.y * croppedGridWidth + corner.x;
-      const zTop = convertZ(modelBaseTopSurface[idx].z);
-      const zBottom = convertZ(modelBaseBottomSurface[idx].z);
-      const thickness = Math.abs(zTop - zBottom);
-      if (thickness < minLocalThickness) minLocalThickness = thickness;
-    });
-    
-    const maxSafeHeightForPin = minLocalThickness * 0.4;
-    const pinHeight = Math.min(nominalPinHeight, maxSafeHeightForPin);
-    
-    const pinMargin = pinRadius * 3;
-    
-    // Pins are positioned relative to the model center, not the base plate center
-    const localPinX1 = (minX + pinMargin) - bpCenterX;
-    const localPinX2 = (maxX - pinMargin) - bpCenterX;
-    const localPinY1 = (minY + pinMargin) - bpCenterY;
-    const localPinY2 = (maxY - pinMargin) - bpCenterY;
-    
-    // The pins sit on top of the base plate
-    const localPinZ = directionUp * (bpThickness / 2 + pinHeight / 2);
-
-    const pinPositions = [
-      [localPinX1, localPinY1],
-      [localPinX2, localPinY1],
-      [localPinX1, localPinY2],
-      [localPinX2, localPinY2],
-    ];
 
     const textStartX = -bpWidth / 2 + 4 * textScale;
     const textZ = directionUp > 0 ? bpThickness / 2 : -bpThickness / 2 - textRelief;
@@ -359,18 +321,10 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           <boxGeometry args={[bpWidth, bpHeight, bpThickness]} />
           <meshStandardMaterial color={basePlateColor} roughness={0.9} />
         </mesh>
-
-        {/* Pins connecting to the last puzzle piece */}
-        {showPins && pinPositions.map((pos, idx) => (
-          <mesh key={`bp-pin-${idx}`} position={[pos[0], pos[1], localPinZ]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
-            <cylinderGeometry args={[pinRadius, pinRadius, pinHeight, 16]} />
-            <meshStandardMaterial color={basePlateColor} roughness={0.9} />
-          </mesh>
-        ))}
         
         {/* Title Text */}
         {basePlateTitle && (
-          <group position={[textStartX, -bpHeight / 2 + userPaddingY * 0.5, textZ]}>
+          <group position={[textStartX, -bpHeight / 2 + (basePlateSubtitle ? 10 * textScale : 4 * textScale), textZ]}>
             <Text3D 
               font={fontUrl} 
               size={8 * textScale} 
@@ -386,7 +340,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 
         {/* Subtitle Text */}
         {basePlateSubtitle && (
-          <group position={[textStartX, -bpHeight / 2 + userPaddingY * 0.2, textZ]}>
+          <group position={[textStartX, -bpHeight / 2 + 4 * textScale, textZ]}>
             <Text3D 
               font={fontUrl} 
               size={4 * textScale} 
@@ -401,7 +355,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
         )}
         
         {/* Legend */}
-        <group position={[textStartX, bpHeight / 2 - userPaddingY * 0.5, textZ]}>
+        <group position={[textStartX, bpHeight / 2 - 8 * textScale, textZ]}>
           {surfaceNames.slice(0, visibleLayers.length).map((name, idx) => {
             if (!visibleLayers[idx]) return null;
             const color = surfaceColors[idx] || '#ffffff';
