@@ -21,7 +21,6 @@ function PuzzleLayer({
   averageVelocity,
   color,
   textureUrl,
-  pinOptions,
   showWireframe,
   colorMap,
   smoothOptions
@@ -461,7 +460,7 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
   };
 
   return (
-    <div className="w-full flex-1 relative bg-zinc-900 rounded-xl overflow-hidden shadow-inner border border-zinc-800">
+    <div className="w-full flex-1 min-h-0 relative bg-zinc-900 rounded-xl overflow-hidden shadow-inner border border-zinc-800">
       {/* Toolbar de Câmera */}
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 bg-zinc-800/90 p-1.5 rounded-lg border border-zinc-700/50 backdrop-blur-sm shadow-lg">
         <button onClick={() => handleViewChange('top')} className="p-2 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors" title="Vista Superior (Mapa)">

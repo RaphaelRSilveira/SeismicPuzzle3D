@@ -727,7 +727,7 @@ export default function App() {
         </aside>
 
         {/* 3D Viewport */}
-        <section className="flex-1 p-6 relative flex flex-col min-h-0">
+        <section className="flex-1 p-6 relative flex flex-col min-h-0 overflow-hidden">
           {visibleSurfaces.filter(Boolean).length < 2 && !loading ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center max-w-md">
