@@ -10,7 +10,7 @@ export function createLayerGeometry(
   exaggeration: number,
   isTimeScale: boolean,
   averageVelocity: number,
-  pinOptions?: { radius: number; height: number; show: boolean; scale: number; showPin?: boolean; showHole?: boolean },
+  pinOptions?: { show: boolean; scale: number; showPin?: boolean; showHole?: boolean; pointsTopAbove?: THREE.Vector3[] },
   smoothOptions?: { enabled: boolean; iterations: number }
 ) {
   const vertices = [];
@@ -146,7 +146,7 @@ export function createLayerGeometry(
 
   // Add Alignment Pins/Holes
   if (pinOptions?.show) {
-    const { radius, height, scale, showPin = true, showHole = true } = pinOptions;
+    const { scale, showPin = true, showHole = true } = pinOptions;
     
     // Position pins at the 4 corners (inset a bit)
     const inset = 0.15;
@@ -165,16 +165,33 @@ export function createLayerGeometry(
       const pinSegments = 16;
       const localThickness = Math.abs(convertZ(pTop.z) - convertZ(pBottom.z));
       
-      // Limit pin/hole height to 60% of the local layer thickness to avoid piercing
-      const maxSafeHeight = localThickness * 0.6;
-      const nominalPinHeight = height / scale;
-      const actualPinHeight = Math.min(nominalPinHeight, maxSafeHeight);
-      const actualHoleHeight = actualPinHeight * 1.1;
+      let thicknessAbove = localThickness; // Fallback
+      if (pinOptions.pointsTopAbove) {
+        const pTopAbove = pinOptions.pointsTopAbove[idx];
+        thicknessAbove = Math.abs(convertZ(pTopAbove.z) - convertZ(pTop.z));
+      }
+
+      // directionUp points from bottom to top
+      const directionUp = Math.sign(convertZ(pTop.z) - convertZ(pBottom.z)) || -1;
+      
+      // Limit pin height to 40% of the layer ABOVE to avoid piercing
+      const maxSafeHeightForPin = thicknessAbove * 0.4;
+      // Limit hole depth to 40% of the CURRENT layer to avoid piercing
+      const maxSafeHeightForHole = localThickness * 0.4;
+      
+      // We calculate the nominal height dynamically based on the model scale, but bounded
+      // A good nominal height is 4mm, radius 2mm
+      const nominalPinHeight = 4 / scale;
+      const nominalPinRadius = 2 / scale;
+      
+      const actualPinHeight = Math.min(nominalPinHeight, maxSafeHeightForPin);
+      const actualHoleHeight = Math.min(nominalPinHeight, maxSafeHeightForHole) * 1.1; // 10% deeper for tolerance
 
       // 1. Add Pin to Top Surface (to fit into the piece above)
       if (showPin) {
-        const pinRadius = radius / scale;
+        const pinRadius = nominalPinRadius;
         const topZ = convertZ(pTop.z) - clearanceTop;
+        const pinTipZ = topZ + directionUp * actualPinHeight;
         
         const pinStartIdx = vertices.length / 3;
         
@@ -189,7 +206,7 @@ export function createLayerGeometry(
           uvs.push(0.5 + cos * 0.5, 0.5 + sin * 0.5);
           
           // Top of pin
-          vertices.push(pTop.x + cos * pinRadius, pTop.y + sin * pinRadius, topZ + actualPinHeight);
+          vertices.push(pTop.x + cos * pinRadius, pTop.y + sin * pinRadius, pinTipZ);
           uvs.push(0.5 + cos * 0.5, 0.5 + sin * 0.5);
         }
         
@@ -199,27 +216,39 @@ export function createLayerGeometry(
           const t1 = pinStartIdx + i * 2 + 1;
           const b2 = pinStartIdx + (i + 1) * 2;
           const t2 = pinStartIdx + (i + 1) * 2 + 1;
-          indices.push(b1, b2, t2);
-          indices.push(b1, t2, t1);
+          
+          // Ensure correct winding order based on directionUp
+          if (directionUp > 0) {
+            indices.push(b1, b2, t2);
+            indices.push(b1, t2, t1);
+          } else {
+            indices.push(b1, t2, b2);
+            indices.push(b1, t1, t2);
+          }
         }
         
         // Pin top cap
         const topCapCenterIdx = vertices.length / 3;
-        vertices.push(pTop.x, pTop.y, topZ + actualPinHeight);
+        vertices.push(pTop.x, pTop.y, pinTipZ);
         uvs.push(0.5, 0.5);
         for (let i = 0; i < pinSegments; i++) {
           const t1 = pinStartIdx + i * 2 + 1;
           const t2 = pinStartIdx + (i + 1) * 2 + 1;
-          indices.push(topCapCenterIdx, t1, t2);
+          if (directionUp > 0) {
+            indices.push(topCapCenterIdx, t1, t2);
+          } else {
+            indices.push(topCapCenterIdx, t2, t1);
+          }
         }
       }
 
       // 2. Add Hole to Bottom Surface (to receive pin from piece below)
       if (showHole) {
-        const holeRadius = (radius / scale) * 1.15; // 15% larger for tolerance
+        const holeRadius = nominalPinRadius * 1.15; // 15% larger for tolerance
         const bottomZ = convertZ(pBottom.z) + clearanceBottom;
         // Make hole entry slightly recessed to be visible in preview
-        const holeEntryZ = bottomZ - 0.1; 
+        const holeEntryZ = bottomZ - directionUp * 0.1; 
+        const holeTipZ = bottomZ + directionUp * actualHoleHeight;
         
         const holeStartIdx = vertices.length / 3;
         
@@ -233,7 +262,7 @@ export function createLayerGeometry(
           uvs.push(0.5 + cos * 0.5, 0.5 + sin * 0.5);
           
           // Top of hole (inside)
-          vertices.push(pBottom.x + cos * holeRadius, pBottom.y + sin * holeRadius, bottomZ + actualHoleHeight);
+          vertices.push(pBottom.x + cos * holeRadius, pBottom.y + sin * holeRadius, holeTipZ);
           uvs.push(0.5 + cos * 0.5, 0.5 + sin * 0.5);
         }
         
@@ -243,18 +272,28 @@ export function createLayerGeometry(
           const t1 = holeStartIdx + i * 2 + 1;
           const b2 = holeStartIdx + (i + 1) * 2;
           const t2 = holeStartIdx + (i + 1) * 2 + 1;
-          indices.push(b1, t2, b2);
-          indices.push(b1, t1, t2);
+          
+          if (directionUp > 0) {
+            indices.push(b1, t2, b2);
+            indices.push(b1, t1, t2);
+          } else {
+            indices.push(b1, b2, t2);
+            indices.push(b1, t2, t1);
+          }
         }
         
         // Hole top cap (inside, inverted)
         const holeCapCenterIdx = vertices.length / 3;
-        vertices.push(pBottom.x, pBottom.y, bottomZ + actualHoleHeight);
+        vertices.push(pBottom.x, pBottom.y, holeTipZ);
         uvs.push(0.5, 0.5);
         for (let i = 0; i < pinSegments; i++) {
           const t1 = holeStartIdx + i * 2 + 1;
           const t2 = holeStartIdx + (i + 1) * 2 + 1;
-          indices.push(holeCapCenterIdx, t2, t1);
+          if (directionUp > 0) {
+            indices.push(holeCapCenterIdx, t2, t1);
+          } else {
+            indices.push(holeCapCenterIdx, t1, t2);
+          }
         }
 
         // Add a visible "rim" for the hole entry so it's noticeable in preview
@@ -272,8 +311,13 @@ export function createLayerGeometry(
           const r2 = rimStartIdx + i + 1;
           const h1 = holeStartIdx + i * 2;
           const h2 = holeStartIdx + (i + 1) * 2;
-          indices.push(r1, h1, h2);
-          indices.push(r1, h2, r2);
+          if (directionUp > 0) {
+            indices.push(r1, h1, h2);
+            indices.push(r1, h2, r2);
+          } else {
+            indices.push(r1, h2, h1);
+            indices.push(r1, r2, h2);
+          }
         }
       }
     });

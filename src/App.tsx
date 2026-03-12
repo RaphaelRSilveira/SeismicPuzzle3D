@@ -12,6 +12,7 @@ export default function App() {
   const {
     surfaces,
     surfaceNames,
+    setSurfaceName,
     visibleSurfaces,
     visibleLayers,
     isTimeScale,
@@ -23,9 +24,7 @@ export default function App() {
     rotationZ,
     modelSizeMm,
     forceSquare,
-    hasFlatBase,
     baseThicknessMm,
-    baseColor,
     cropXMin,
     cropXMax,
     cropYMin,
@@ -41,17 +40,11 @@ export default function App() {
     setRotation,
     setModelSizeMm,
     setForceSquare,
-    setHasFlatBase,
     setBaseThicknessMm,
-    setBaseColor,
     setCropX,
     setCropY,
     showPins,
-    pinRadiusMm,
-    pinHeightMm,
     setShowPins,
-    setPinRadiusMm,
-    setPinHeightMm,
     surfaceColors,
     setSurfaceColor,
     surfaceTextures,
@@ -66,6 +59,18 @@ export default function App() {
     setSmoothMesh,
     smoothIterations,
     setSmoothIterations,
+    showBasePlate,
+    setShowBasePlate,
+    basePlateTitle,
+    setBasePlateTitle,
+    basePlateSubtitle,
+    setBasePlateSubtitle,
+    basePlateColor,
+    setBasePlateColor,
+    basePlatePadding,
+    setBasePlatePadding,
+    basePlateTextRelief,
+    setBasePlateTextRelief,
     generateExample,
     clear
   } = useAppStore();
@@ -187,7 +192,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans">
+    <div className="h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100 flex flex-col font-sans">
       {/* Header */}
       <header className="bg-zinc-900 border-b border-zinc-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -260,18 +265,24 @@ export default function App() {
                 
                 <div className="flex flex-col gap-2 mb-3">
                   {surfaceNames.map((name, idx) => (
-                    <div key={idx} className="flex items-center justify-between group">
-                      <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer hover:text-zinc-200 transition-colors flex-1 min-w-0">
+                    <div key={idx} className="flex items-center justify-between group gap-2">
+                      <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer hover:text-zinc-200 transition-colors shrink-0">
                         <input 
                           type="checkbox" 
                           checked={visibleSurfaces[idx]} 
                           onChange={() => toggleSurfaceVisibility(idx)}
                           className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
                         />
-                        <span className="truncate" title={name}>{name}</span>
                       </label>
+                      <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => setSurfaceName(idx, e.target.value)}
+                        className="bg-transparent border-b border-transparent hover:border-zinc-600 focus:border-emerald-500 focus:outline-none text-sm text-zinc-300 flex-1 min-w-0 px-1 py-0.5 transition-colors"
+                        title="Renomear camada"
+                      />
                       
-                      <div className="flex items-center gap-2 ml-2">
+                      <div className="flex items-center gap-2 shrink-0">
                         <select
                           value={surfaceTextures[idx] || 'none'}
                           onChange={(e) => setSurfaceTexture(idx, e.target.value)}
@@ -311,9 +322,9 @@ export default function App() {
                 </h3>
                 <div className="flex flex-col gap-2">
                   {visibleLayers.map((visible, idx) => {
-                    const isBaseLayer = idx === surfaces.length - 1 && hasFlatBase;
+                    const isBaseLayer = idx === surfaces.length - 1 && showBasePlate;
                     const nameTop = surfaceNames[idx] || 'Superfície ' + idx;
-                    const nameBottom = isBaseLayer ? 'Base Plana' : (surfaceNames[idx+1] || 'Superfície ' + (idx + 1));
+                    const nameBottom = isBaseLayer ? 'Limite Inferior (Plano)' : (surfaceNames[idx+1] || 'Superfície ' + (idx + 1));
                     
                     return (
                       <div key={idx} className="flex items-center justify-between group">
@@ -325,7 +336,7 @@ export default function App() {
                             className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
                           />
                           <span className="truncate">
-                            {isBaseLayer ? 'Peça Base' : `Peça ${idx + 1}`}: {nameTop} → {nameBottom}
+                            {isBaseLayer ? 'Base do Modelo' : `Peça ${idx + 1}`}: {nameTop} → {nameBottom}
                           </span>
                         </label>
                       </div>
@@ -547,22 +558,22 @@ export default function App() {
             </div>
             
             <div className="pt-4 border-t border-zinc-800 flex flex-col gap-4">
-              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Base do Modelo</h3>
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Suporte de Exposição</h3>
               <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
                 <input 
                   type="checkbox" 
-                  checked={hasFlatBase} 
-                  onChange={(e) => setHasFlatBase(e.target.checked)}
+                  checked={showBasePlate} 
+                  onChange={(e) => setShowBasePlate(e.target.checked)}
                   className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
                 />
-                Adicionar Base Plana (Fictícia)
+                Adicionar Suporte com Legenda e Base Plana
               </label>
               
-              {hasFlatBase && (
+              {showBasePlate && (
                 <div className="flex flex-col gap-4 pl-6">
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400 flex justify-between">
-                      Espessura da Base (mm)
+                      Espessura da Base Plana (mm)
                       <span className="text-zinc-500 font-mono">{baseThicknessMm}</span>
                     </label>
                     <input
@@ -575,12 +586,62 @@ export default function App() {
                       className="w-full accent-emerald-500"
                     />
                   </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-zinc-400">Título</label>
+                    <input
+                      type="text"
+                      value={basePlateTitle}
+                      onChange={(e) => setBasePlateTitle(e.target.value)}
+                      className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2"
+                      placeholder="Ex: Bacia de Campos"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-zinc-400">Subtítulo / Escala</label>
+                    <input
+                      type="text"
+                      value={basePlateSubtitle}
+                      onChange={(e) => setBasePlateSubtitle(e.target.value)}
+                      className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2"
+                      placeholder="Ex: Escala 1:1000"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-zinc-400 flex justify-between">
+                      Margem (Padding)
+                      <span className="text-zinc-500 font-mono">{basePlatePadding}mm</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="10"
+                      max="100"
+                      step="5"
+                      value={basePlatePadding}
+                      onChange={(e) => setBasePlatePadding(Number(e.target.value))}
+                      className="w-full accent-emerald-500"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-zinc-400 flex justify-between">
+                      Relevo do Texto (mm)
+                      <span className="text-zinc-500 font-mono">{basePlateTextRelief}mm</span>
+                    </label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="5"
+                      step="0.5"
+                      value={basePlateTextRelief}
+                      onChange={(e) => setBasePlateTextRelief(Number(e.target.value))}
+                      className="w-full accent-emerald-500"
+                    />
+                  </div>
                   <div className="flex items-center justify-between">
                     <label className="text-xs text-zinc-400">Cor da Base</label>
                     <input 
                       type="color" 
-                      value={baseColor} 
-                      onChange={(e) => setBaseColor(e.target.value)}
+                      value={basePlateColor} 
+                      onChange={(e) => setBasePlateColor(e.target.value)}
                       className="w-6 h-6 rounded border border-zinc-700 p-0 cursor-pointer bg-transparent"
                     />
                   </div>
@@ -604,38 +665,9 @@ export default function App() {
                 </div>
                 Pinos de Alinhamento
               </label>
-
-              {showPins && (
-                <div className="flex flex-col gap-2 pl-6">
-                  <label className="text-xs text-zinc-400 flex justify-between">
-                    Raio do Pino (mm)
-                    <span className="text-zinc-500 font-mono">{pinRadiusMm}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="5"
-                    step="0.1"
-                    value={pinRadiusMm}
-                    onChange={(e) => setPinRadiusMm(Number(e.target.value))}
-                    className="w-full accent-emerald-500"
-                  />
-
-                  <label className="text-xs text-zinc-400 flex justify-between mt-2">
-                    Altura do Pino (mm)
-                    <span className="text-zinc-500 font-mono">{pinHeightMm}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="10"
-                    step="0.1"
-                    value={pinHeightMm}
-                    onChange={(e) => setPinHeightMm(Number(e.target.value))}
-                    className="w-full accent-emerald-500"
-                  />
-                </div>
-              )}
+              <p className="text-xs text-zinc-500">
+                O tamanho dos pinos é calculado automaticamente com base na espessura de cada camada.
+              </p>
             </div>
 
             <div className="pt-4 border-t border-zinc-800 flex flex-col gap-4">
@@ -700,7 +732,7 @@ export default function App() {
         </aside>
 
         {/* 3D Viewport */}
-        <section className="flex-1 p-6 relative">
+        <section className="flex-1 p-6 relative flex flex-col min-h-0">
           {visibleSurfaces.filter(Boolean).length < 2 && !loading ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center max-w-md">

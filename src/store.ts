@@ -22,23 +22,26 @@ export interface AppState {
   dataMaxDimension: number;
   dataWidth: number;
   dataHeight: number;
-  hasFlatBase: boolean;
   baseThicknessMm: number;
-  baseColor: string;
   cropXMin: number;
   cropXMax: number;
   cropYMin: number;
   cropYMax: number;
   showPins: boolean;
-  pinRadiusMm: number;
-  pinHeightMm: number;
   showWireframe: boolean;
   explodedView: boolean;
   colorMap: 'none' | 'rainbow' | 'viridis' | 'magma';
   smoothMesh: boolean;
   smoothIterations: number;
+  showBasePlate: boolean;
+  basePlateTitle: string;
+  basePlateSubtitle: string;
+  basePlateColor: string;
+  basePlatePadding: number;
+  basePlateTextRelief: number;
   
   setSurfaces: (surfaces: THREE.Vector3[][], names: string[], width: number, height: number, isTime: boolean, dataMaxDim: number, dataWidth: number, dataHeight: number) => void;
+  setSurfaceName: (index: number, name: string) => void;
   toggleSurfaceVisibility: (index: number) => void;
   toggleLayerVisibility: (index: number) => void;
   setSurfaceColor: (index: number, color: string) => void;
@@ -49,19 +52,21 @@ export interface AppState {
   setRotation: (axis: 'x' | 'y' | 'z', value: number) => void;
   setModelSizeMm: (v: number) => void;
   setForceSquare: (v: boolean) => void;
-  setHasFlatBase: (v: boolean) => void;
   setBaseThicknessMm: (v: number) => void;
-  setBaseColor: (v: string) => void;
   setCropX: (min: number, max: number) => void;
   setCropY: (min: number, max: number) => void;
   setShowPins: (v: boolean) => void;
-  setPinRadiusMm: (v: number) => void;
-  setPinHeightMm: (v: number) => void;
   setShowWireframe: (v: boolean) => void;
   setExplodedView: (v: boolean) => void;
   setColorMap: (v: 'none' | 'rainbow' | 'viridis' | 'magma') => void;
   setSmoothMesh: (v: boolean) => void;
   setSmoothIterations: (v: number) => void;
+  setShowBasePlate: (v: boolean) => void;
+  setBasePlateTitle: (v: string) => void;
+  setBasePlateSubtitle: (v: string) => void;
+  setBasePlateColor: (v: string) => void;
+  setBasePlatePadding: (v: number) => void;
+  setBasePlateTextRelief: (v: number) => void;
   generateExample: () => void;
   clear: () => void;
 }
@@ -78,7 +83,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isTimeScale: false,
   averageVelocity: 2000,
   verticalExaggeration: 1,
-  clearance: 0,
+  clearance: 0.20,
   rotationX: 0,
   rotationY: 0,
   rotationZ: 0,
@@ -87,21 +92,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   dataMaxDimension: 1,
   dataWidth: 1,
   dataHeight: 1,
-  hasFlatBase: false,
   baseThicknessMm: 10,
-  baseColor: '#3f3f46',
   cropXMin: 0,
   cropXMax: 100,
   cropYMin: 0,
   cropYMax: 100,
   showPins: true,
-  pinRadiusMm: 1.5,
-  pinHeightMm: 1.5,
   showWireframe: false,
   explodedView: false,
   colorMap: 'none',
   smoothMesh: false,
   smoothIterations: 1,
+  showBasePlate: true,
+  basePlateTitle: 'SeismicPuzzle3D',
+  basePlateSubtitle: 'Escala: 1:1000',
+  basePlateColor: '#27272a',
+  basePlatePadding: 20,
+  basePlateTextRelief: 1,
 
   setSurfaces: (surfaces, names, gridWidth, gridHeight, isTimeScale, dataMaxDimension, dataWidth, dataHeight) => {
     const defaultColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
@@ -110,7 +117,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       surfaces, 
       surfaceNames: names, 
       visibleSurfaces: new Array(surfaces.length).fill(true), 
-      visibleLayers: new Array(Math.max(0, surfaces.length - 1 + (get().hasFlatBase ? 1 : 0))).fill(true),
+      visibleLayers: new Array(Math.max(0, surfaces.length - 1 + (get().showBasePlate ? 1 : 0))).fill(true),
       surfaceColors: colors,
       surfaceTextures: new Array(surfaces.length).fill('none'),
       gridWidth, 
@@ -129,6 +136,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
   
+  setSurfaceName: (index, name) => set((state) => {
+    const newNames = [...state.surfaceNames];
+    newNames[index] = name;
+    return { surfaceNames: newNames };
+  }),
+
   toggleSurfaceVisibility: (index) => set((state) => {
     const newVisible = [...state.visibleSurfaces];
     newVisible[index] = !newVisible[index];
@@ -162,27 +175,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   setModelSizeMm: (modelSizeMm) => set({ modelSizeMm }),
   setForceSquare: (forceSquare) => set({ forceSquare }),
-  setHasFlatBase: (hasFlatBase) => set((state) => {
-    const newVisibleLayers = [...state.visibleLayers];
-    if (hasFlatBase && state.surfaces.length > 0 && newVisibleLayers.length < state.surfaces.length) {
-      newVisibleLayers.push(true);
-    } else if (!hasFlatBase && newVisibleLayers.length === state.surfaces.length) {
-      newVisibleLayers.pop();
-    }
-    return { hasFlatBase, visibleLayers: newVisibleLayers };
-  }),
   setBaseThicknessMm: (baseThicknessMm) => set({ baseThicknessMm }),
-  setBaseColor: (baseColor) => set({ baseColor }),
   setCropX: (min, max) => set({ cropXMin: min, cropXMax: max }),
   setCropY: (min, max) => set({ cropYMin: min, cropYMax: max }),
   setShowPins: (showPins) => set({ showPins }),
-  setPinRadiusMm: (pinRadiusMm) => set({ pinRadiusMm }),
-  setPinHeightMm: (pinHeightMm) => set({ pinHeightMm }),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
   setExplodedView: (explodedView) => set({ explodedView }),
   setColorMap: (colorMap) => set({ colorMap }),
   setSmoothMesh: (smoothMesh) => set({ smoothMesh }),
   setSmoothIterations: (smoothIterations) => set({ smoothIterations }),
+  setShowBasePlate: (showBasePlate) => set((state) => {
+    const newVisibleLayers = [...state.visibleLayers];
+    if (showBasePlate && state.surfaces.length > 0 && newVisibleLayers.length < state.surfaces.length) {
+      newVisibleLayers.push(true);
+    } else if (!showBasePlate && newVisibleLayers.length === state.surfaces.length) {
+      newVisibleLayers.pop();
+    }
+    return { showBasePlate, visibleLayers: newVisibleLayers };
+  }),
+  setBasePlateTitle: (basePlateTitle) => set({ basePlateTitle }),
+  setBasePlateSubtitle: (basePlateSubtitle) => set({ basePlateSubtitle }),
+  setBasePlateColor: (basePlateColor) => set({ basePlateColor }),
+  setBasePlatePadding: (basePlatePadding) => set({ basePlatePadding }),
+  setBasePlateTextRelief: (basePlateTextRelief) => set({ basePlateTextRelief }),
   
   generateExample: () => {
     const gridWidth = 50;
@@ -223,7 +238,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       gridHeight,
       isTimeScale: false,
       verticalExaggeration: 1,
-      clearance: 0.1,
+      clearance: 0.20,
       rotationX: 0,
       rotationY: 0,
       rotationZ: 0,

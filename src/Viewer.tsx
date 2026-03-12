@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Center, Environment } from '@react-three/drei';
+import { OrbitControls, Center, Environment, Text3D } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAppStore } from './store';
 import { createLayerGeometry } from './geometry';
@@ -37,7 +37,7 @@ function PuzzleLayer({
   averageVelocity: number;
   color: string;
   textureUrl?: string | null;
-  pinOptions?: { radius: number; height: number; show: boolean; scale: number; showPin?: boolean; showHole?: boolean };
+  pinOptions?: { show: boolean; scale: number; showPin?: boolean; showHole?: boolean; pointsTopAbove?: THREE.Vector3[] };
   showWireframe: boolean;
   colorMap: 'none' | 'rainbow' | 'viridis' | 'magma';
   smoothOptions?: { enabled: boolean; iterations: number };
@@ -122,7 +122,7 @@ function PuzzleLayer({
 }
 
 export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
-  const { surfaces, visibleSurfaces, visibleLayers, surfaceColors, surfaceTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, hasFlatBase, baseThicknessMm, baseColor, cropXMin, cropXMax, cropYMin, cropYMax, showPins, pinRadiusMm, pinHeightMm, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations } = useAppStore();
+  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, surfaceColors, surfaceTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showPins, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateTextRelief } = useAppStore();
 
   if (surfaces.length === 0) return null;
 
@@ -166,15 +166,30 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 
   // Prepare all surfaces including the flat base
   const allSurfaces = [...croppedSurfaces];
-  if (hasFlatBase) {
+  if (showBasePlate) {
     const lastSurface = croppedSurfaces[croppedSurfaces.length - 1];
-    // convertZ in geometry.ts uses (z * averageVelocity) / 2 for time scale
-    // So delta_convertZ = delta_z * (averageVelocity / 2) * exaggeration
-    // We want delta_convertZ = rawBaseThickness
-    // So delta_z = rawBaseThickness / ((averageVelocity / 2) * exaggeration)
     const zFactor = (isTimeScale ? (averageVelocity / 2) : 1) * verticalExaggeration;
-    const minRawZ = Math.min(...lastSurface.map(p => p.z));
-    const flatZ = minRawZ - (rawBaseThickness / zFactor);
+    
+    // Determine direction: if first surface Z < second surface Z, Z is depth (increases downwards)
+    const convertZ = (z: number) => {
+      let depth = isTimeScale ? (z * averageVelocity) / 2 : z;
+      return depth * verticalExaggeration;
+    };
+    const firstZ = convertZ(croppedSurfaces[0][0].z);
+    const secondZ = convertZ(croppedSurfaces[1]?.[0]?.z ?? firstZ + 1);
+    const directionUp = Math.sign(firstZ - secondZ) || -1;
+    
+    let flatZ;
+    if (directionUp < 0) {
+      // Z is depth. "Below" means larger Z.
+      const maxRawZ = Math.max(...lastSurface.map(p => p.z));
+      flatZ = maxRawZ + (rawBaseThickness / zFactor);
+    } else {
+      // Z is elevation. "Below" means smaller Z.
+      const minRawZ = Math.min(...lastSurface.map(p => p.z));
+      flatZ = minRawZ - (rawBaseThickness / zFactor);
+    }
+    
     const flatBaseSurface = lastSurface.map(p => new THREE.Vector3(p.x, p.y, flatZ));
     allSurfaces.push(flatBaseSurface);
   }
@@ -193,14 +208,15 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     
     const topSurface = allSurfaces[i];
     const bottomSurface = allSurfaces[i+1];
+    const topSurfaceAbove = i > 0 ? allSurfaces[i-1] : undefined;
     
     // Top layer has no top clearance, bottom layer has no bottom clearance
     const clearanceTop = i === 0 ? 0 : rawClearance / 2;
     const clearanceBottom = i === numLayers - 1 ? 0 : rawClearance / 2;
 
-    const isFlatBaseLayer = hasFlatBase && i === numLayers - 1;
+    const isFlatBaseLayer = showBasePlate && i === numLayers - 1;
     
-    const layerColor = isFlatBaseLayer ? baseColor : (surfaceColors[i] || '#3b82f6');
+    const layerColor = surfaceColors[i] || '#3b82f6';
     const textureKey = isFlatBaseLayer ? 'none' : (surfaceTextures[i] as keyof typeof LITHOLOGY_TEXTURES || 'none');
     const textureUrl = LITHOLOGY_TEXTURES[textureKey];
 
@@ -224,11 +240,10 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           textureUrl={textureUrl}
           pinOptions={{
             show: showPins,
-            radius: pinRadiusMm,
-            height: pinHeightMm,
             scale: scaleZ,
             showPin: i > 0, // No pin on the very top of the model
-            showHole: i < numLayers - 1 // No hole on the very bottom of the model
+            showHole: showBasePlate ? true : i < numLayers - 1, // Hole on the bottom if there's a base plate
+            pointsTopAbove: topSurfaceAbove
           }}
           smoothOptions={{
             enabled: smoothMesh,
@@ -237,6 +252,178 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           showWireframe={showWireframe}
           colorMap={colorMap}
         />
+      </group>
+    );
+  }
+
+  // Base Plate
+  if (showBasePlate) {
+    const userPaddingX = basePlatePadding / scaleX;
+    const userPaddingY = basePlatePadding / scaleY;
+
+    const textScale = 1 / scaleX; // Adjust text size to be readable
+    const textRelief = basePlateTextRelief / scaleZ;
+
+    const maxLegendNameLength = Math.max(0, ...surfaceNames.slice(0, visibleLayers.length).filter((_, i) => visibleLayers[i]).map(n => n.length));
+    const requiredLegendWidth = (4 + maxLegendNameLength * 3 * 0.75 + 8) * textScale;
+    const titleWidth = (basePlateTitle.length * 8 * 0.75) * textScale;
+    const subtitleWidth = (basePlateSubtitle.length * 4 * 0.75) * textScale;
+    const requiredTitleWidth = Math.max(titleWidth, subtitleWidth) + 8 * textScale;
+
+    const minPaddingX = Math.max(requiredLegendWidth, requiredTitleWidth);
+    const actualPaddingLeft = Math.max(userPaddingX, minPaddingX);
+    const actualPaddingRight = userPaddingX;
+
+    const bpWidth = croppedDataWidth + actualPaddingLeft + actualPaddingRight;
+    const bpHeight = croppedDataHeight + userPaddingY * 2;
+    const bpThickness = 5 / scaleZ; // 5mm thick base plate
+    
+    const modelBaseTopSurface = allSurfaces[allSurfaces.length - 2];
+    const modelBaseBottomSurface = allSurfaces[allSurfaces.length - 1];
+    
+    const convertZ = (z: number) => {
+      let depth = isTimeScale ? (z * averageVelocity) / 2 : z;
+      return depth * verticalExaggeration;
+    };
+    const firstZ = convertZ(croppedSurfaces[0][0].z);
+    const secondZ = convertZ(croppedSurfaces[1]?.[0]?.z ?? firstZ + 1);
+    const directionUp = Math.sign(firstZ - secondZ) || -1;
+    
+    // The flat base has a constant Z
+    const baseZ = convertZ(modelBaseBottomSurface[0].z);
+    
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    const bpCenterX = centerX + (actualPaddingRight - actualPaddingLeft) / 2;
+    const bpCenterY = centerY;
+    
+    const bpExplodedOffset = explodedView ? - (modelSizeMm * 0.2) / scaleZ : 0;
+    
+    // If directionUp < 0 (depth), "below" is +Z. So centerZ is baseZ + bpThickness / 2
+    // If directionUp > 0 (elevation), "below" is -Z. So centerZ is baseZ - bpThickness / 2
+    const centerZ = baseZ - directionUp * (bpThickness / 2) + bpExplodedOffset;
+
+    const fontUrl = 'https://unpkg.com/three@0.160.0/examples/fonts/helvetiker_regular.typeface.json';
+
+    // Calculate dynamic pin height based on the thickness of the model base piece
+    const nominalPinHeight = 4 / scaleZ;
+    const nominalPinRadius = 2 / scaleZ;
+    const pinRadius = nominalPinRadius;
+    
+    // Find the minimum thickness of the model base piece at the 4 corners to ensure pins don't bottom out
+    const inset = 0.15;
+    const cornerIndices = [
+      { x: Math.floor(croppedGridWidth * inset), y: Math.floor(croppedGridHeight * inset) },
+      { x: Math.floor(croppedGridWidth * (1 - inset)), y: Math.floor(croppedGridHeight * inset) },
+      { x: Math.floor(croppedGridWidth * inset), y: Math.floor(croppedGridHeight * (1 - inset)) },
+      { x: Math.floor(croppedGridWidth * (1 - inset)), y: Math.floor(croppedGridHeight * (1 - inset)) }
+    ];
+    
+    let minLocalThickness = Infinity;
+    cornerIndices.forEach(corner => {
+      const idx = corner.y * croppedGridWidth + corner.x;
+      const zTop = convertZ(modelBaseTopSurface[idx].z);
+      const zBottom = convertZ(modelBaseBottomSurface[idx].z);
+      const thickness = Math.abs(zTop - zBottom);
+      if (thickness < minLocalThickness) minLocalThickness = thickness;
+    });
+    
+    const maxSafeHeightForPin = minLocalThickness * 0.4;
+    const pinHeight = Math.min(nominalPinHeight, maxSafeHeightForPin);
+    
+    const pinMargin = pinRadius * 3;
+    
+    // Pins are positioned relative to the model center, not the base plate center
+    const localPinX1 = (minX + pinMargin) - bpCenterX;
+    const localPinX2 = (maxX - pinMargin) - bpCenterX;
+    const localPinY1 = (minY + pinMargin) - bpCenterY;
+    const localPinY2 = (maxY - pinMargin) - bpCenterY;
+    
+    // The pins sit on top of the base plate
+    const localPinZ = directionUp * (bpThickness / 2 + pinHeight / 2);
+
+    const pinPositions = [
+      [localPinX1, localPinY1],
+      [localPinX2, localPinY1],
+      [localPinX1, localPinY2],
+      [localPinX2, localPinY2],
+    ];
+
+    const textStartX = -bpWidth / 2 + 4 * textScale;
+    const textZ = directionUp > 0 ? bpThickness / 2 : -bpThickness / 2 - textRelief;
+
+    layers.push(
+      <group key="base-plate" position={[bpCenterX, bpCenterY, centerZ]}>
+        <mesh receiveShadow castShadow>
+          <boxGeometry args={[bpWidth, bpHeight, bpThickness]} />
+          <meshStandardMaterial color={basePlateColor} roughness={0.9} />
+        </mesh>
+
+        {/* Pins connecting to the last puzzle piece */}
+        {showPins && pinPositions.map((pos, idx) => (
+          <mesh key={`bp-pin-${idx}`} position={[pos[0], pos[1], localPinZ]} rotation={[Math.PI / 2, 0, 0]} castShadow receiveShadow>
+            <cylinderGeometry args={[pinRadius, pinRadius, pinHeight, 16]} />
+            <meshStandardMaterial color={basePlateColor} roughness={0.9} />
+          </mesh>
+        ))}
+        
+        {/* Title Text */}
+        {basePlateTitle && (
+          <group position={[textStartX, -bpHeight / 2 + userPaddingY * 0.5, textZ]}>
+            <Text3D 
+              font={fontUrl} 
+              size={8 * textScale} 
+              height={textRelief} 
+              curveSegments={12}
+              rotation={[0, 0, 0]}
+            >
+              {basePlateTitle}
+              <meshStandardMaterial color="#ffffff" />
+            </Text3D>
+          </group>
+        )}
+
+        {/* Subtitle Text */}
+        {basePlateSubtitle && (
+          <group position={[textStartX, -bpHeight / 2 + userPaddingY * 0.2, textZ]}>
+            <Text3D 
+              font={fontUrl} 
+              size={4 * textScale} 
+              height={textRelief} 
+              curveSegments={12}
+              rotation={[0, 0, 0]}
+            >
+              {basePlateSubtitle}
+              <meshStandardMaterial color="#cccccc" />
+            </Text3D>
+          </group>
+        )}
+        
+        {/* Legend */}
+        <group position={[textStartX, bpHeight / 2 - userPaddingY * 0.5, textZ]}>
+          {surfaceNames.slice(0, visibleLayers.length).map((name, idx) => {
+            if (!visibleLayers[idx]) return null;
+            const color = surfaceColors[idx] || '#ffffff';
+            return (
+              <group key={`legend-${idx}`} position={[0, -idx * 6 * textScale, 0]}>
+                <mesh position={[0, 2 * textScale, textRelief / 2]}>
+                  <boxGeometry args={[4 * textScale, 4 * textScale, textRelief]} />
+                  <meshStandardMaterial color={color} />
+                </mesh>
+                <Text3D 
+                  font={fontUrl} 
+                  size={3 * textScale} 
+                  height={textRelief} 
+                  position={[4 * textScale, 0, 0]}
+                >
+                  {name}
+                  <meshStandardMaterial color="#ffffff" />
+                </Text3D>
+              </group>
+            );
+          })}
+        </group>
       </group>
     );
   }
@@ -320,7 +507,7 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
   };
 
   return (
-    <div className="w-full h-full relative bg-zinc-900 rounded-xl overflow-hidden shadow-inner border border-zinc-800">
+    <div className="w-full flex-1 relative bg-zinc-900 rounded-xl overflow-hidden shadow-inner border border-zinc-800">
       {/* Toolbar de Câmera */}
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 bg-zinc-800/90 p-1.5 rounded-lg border border-zinc-700/50 backdrop-blur-sm shadow-lg">
         <button onClick={() => handleViewChange('top')} className="p-2 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors" title="Vista Superior (Mapa)">
@@ -358,7 +545,9 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
         <directionalLight position={[-1000, 1000, -1000]} intensity={0.4} />
         <directionalLight position={[0, -1000, 500]} intensity={0.25} />
         
-        <Scene groupRef={groupRef} />
+        <React.Suspense fallback={null}>
+          <Scene groupRef={groupRef} />
+        </React.Suspense>
         
         <CameraController viewTrigger={viewTrigger} viewType={viewType} />
         <Environment preset="studio" />
