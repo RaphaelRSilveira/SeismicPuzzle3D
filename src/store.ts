@@ -6,8 +6,8 @@ export interface AppState {
   surfaceNames: string[];
   visibleSurfaces: boolean[];
   visibleLayers: boolean[];
-  surfaceColors: string[];
-  surfaceTextures: string[];
+  layerColors: string[];
+  layerTextures: string[];
   gridWidth: number;
   gridHeight: number;
   isTimeScale: boolean;
@@ -41,13 +41,16 @@ export interface AppState {
   basePlateTextRelief: number;
   basePieceName: string;
   basePieceColor: string;
+  scaleMode: 'size' | 'scale';
+  metersPerCm: number;
+  lightingIntensity: number;
   
   setSurfaces: (surfaces: THREE.Vector3[][], names: string[], width: number, height: number, isTime: boolean, dataMaxDim: number, dataWidth: number, dataHeight: number) => void;
   setSurfaceName: (index: number, name: string) => void;
   toggleSurfaceVisibility: (index: number) => void;
   toggleLayerVisibility: (index: number) => void;
-  setSurfaceColor: (index: number, color: string) => void;
-  setSurfaceTexture: (index: number, texture: string) => void;
+  setLayerColor: (index: number, color: string) => void;
+  setLayerTexture: (index: number, texture: string) => void;
   setAverageVelocity: (v: number) => void;
   setVerticalExaggeration: (v: number) => void;
   setClearance: (c: number) => void;
@@ -71,6 +74,9 @@ export interface AppState {
   setBasePlateTextRelief: (v: number) => void;
   setBasePieceName: (v: string) => void;
   setBasePieceColor: (v: string) => void;
+  setScaleMode: (v: 'size' | 'scale') => void;
+  setMetersPerCm: (v: number) => void;
+  setLightingIntensity: (v: number) => void;
   generateExample: () => void;
   clear: () => void;
 }
@@ -80,8 +86,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   surfaceNames: [],
   visibleSurfaces: [],
   visibleLayers: [],
-  surfaceColors: [],
-  surfaceTextures: [],
+  layerColors: [],
+  layerTextures: [],
   gridWidth: 0,
   gridHeight: 0,
   isTimeScale: false,
@@ -115,17 +121,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   basePlateTextRelief: 1,
   basePieceName: 'Base do Modelo',
   basePieceColor: '#4b5563',
+  scaleMode: 'size',
+  metersPerCm: 5000,
+  lightingIntensity: 0.7,
 
   setSurfaces: (surfaces, names, gridWidth, gridHeight, isTimeScale, dataMaxDimension, dataWidth, dataHeight) => {
     const defaultColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
-    const colors = names.map((_, i) => defaultColors[i % defaultColors.length]);
-    set({ 
+    const numLayers = Math.max(0, surfaces.length - 1 + (get().showBasePlate ? 1 : 0));
+    const colors = new Array(numLayers).fill('').map((_, i) => defaultColors[i % defaultColors.length]);
+    
+    const newState: any = { 
       surfaces, 
       surfaceNames: names, 
       visibleSurfaces: new Array(surfaces.length).fill(true), 
-      visibleLayers: new Array(Math.max(0, surfaces.length - 1 + (get().showBasePlate ? 1 : 0))).fill(true),
-      surfaceColors: colors,
-      surfaceTextures: new Array(surfaces.length).fill('none'),
+      visibleLayers: new Array(numLayers).fill(true),
+      layerColors: colors,
+      layerTextures: new Array(numLayers).fill('none'),
       gridWidth, 
       gridHeight, 
       isTimeScale, 
@@ -139,7 +150,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       cropXMax: 100, 
       cropYMin: 0, 
       cropYMax: 100 
-    });
+    };
+
+    if (get().scaleMode === 'scale' && dataWidth > 0) {
+      newState.modelSizeMm = (dataWidth / get().metersPerCm) * 10;
+    }
+
+    set(newState);
   },
   
   setSurfaceName: (index, name) => set((state) => {
@@ -160,16 +177,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { visibleLayers: newVisible };
   }),
 
-  setSurfaceColor: (index, color) => set((state) => {
-    const newColors = [...state.surfaceColors];
+  setLayerColor: (index, color) => set((state) => {
+    const newColors = [...state.layerColors];
     newColors[index] = color;
-    return { surfaceColors: newColors };
+    return { layerColors: newColors };
   }),
 
-  setSurfaceTexture: (index, texture) => set((state) => {
-    const newTextures = [...state.surfaceTextures];
+  setLayerTexture: (index, texture) => set((state) => {
+    const newTextures = [...state.layerTextures];
     newTextures[index] = texture;
-    return { surfaceTextures: newTextures };
+    return { layerTextures: newTextures };
   }),
 
   setAverageVelocity: (averageVelocity) => set({ averageVelocity }),
@@ -191,12 +208,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSmoothIterations: (smoothIterations) => set({ smoothIterations }),
   setShowBasePlate: (showBasePlate) => set((state) => {
     const newVisibleLayers = [...state.visibleLayers];
+    const newLayerColors = [...state.layerColors];
+    const newLayerTextures = [...state.layerTextures];
+    
     if (showBasePlate && state.surfaces.length > 0 && newVisibleLayers.length < state.surfaces.length) {
       newVisibleLayers.push(true);
+      newLayerColors.push(state.basePieceColor);
+      newLayerTextures.push('none');
     } else if (!showBasePlate && newVisibleLayers.length === state.surfaces.length) {
       newVisibleLayers.pop();
+      newLayerColors.pop();
+      newLayerTextures.pop();
     }
-    return { showBasePlate, visibleLayers: newVisibleLayers };
+    return { showBasePlate, visibleLayers: newVisibleLayers, layerColors: newLayerColors, layerTextures: newLayerTextures };
   }),
   setBasePlateTitle: (basePlateTitle) => set({ basePlateTitle }),
   setBasePlateSubtitle: (basePlateSubtitle) => set({ basePlateSubtitle }),
@@ -206,6 +230,21 @@ export const useAppStore = create<AppState>((set, get) => ({
   setBasePlateTextRelief: (basePlateTextRelief) => set({ basePlateTextRelief }),
   setBasePieceName: (basePieceName) => set({ basePieceName }),
   setBasePieceColor: (basePieceColor) => set({ basePieceColor }),
+  setScaleMode: (scaleMode) => set((state) => {
+    if (scaleMode === 'scale' && state.dataWidth > 0) {
+      const modelSizeMm = (state.dataWidth / state.metersPerCm) * 10;
+      return { scaleMode, modelSizeMm };
+    }
+    return { scaleMode };
+  }),
+  setMetersPerCm: (metersPerCm) => set((state) => {
+    if (state.scaleMode === 'scale' && state.dataWidth > 0) {
+      const modelSizeMm = (state.dataWidth / metersPerCm) * 10;
+      return { metersPerCm, modelSizeMm };
+    }
+    return { metersPerCm };
+  }),
+  setLightingIntensity: (lightingIntensity) => set({ lightingIntensity }),
   
   generateExample: () => {
     const gridWidth = 50;
@@ -235,13 +274,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
     
-    set({
+    const dataWidth = 1000;
+    const dataHeight = 1000;
+    const newState: any = {
       surfaces: [top, middle, base],
       surfaceNames: ['Topo', 'Meio', 'Base'],
       visibleSurfaces: [true, true, true],
-      visibleLayers: [true, true],
-      surfaceColors: ['#3b82f6', '#10b981', '#f59e0b'],
-      surfaceTextures: ['none', 'none', 'none'],
+      visibleLayers: [true, true, true],
+      layerColors: ['#3b82f6', '#10b981', '#f59e0b'],
+      layerTextures: ['none', 'none', 'none'],
       gridWidth,
       gridHeight,
       isTimeScale: false,
@@ -251,14 +292,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       rotationY: 0,
       rotationZ: 0,
       dataMaxDimension: 1000,
-      dataWidth: 1000,
-      dataHeight: 1000,
+      dataWidth,
+      dataHeight,
       cropXMin: 0,
       cropXMax: 100,
       cropYMin: 0,
       cropYMax: 100,
-      colorMap: 'none'
-    });
+      colorMap: 'none',
+      showBasePlate: true
+    };
+
+    if (get().scaleMode === 'scale') {
+      newState.modelSizeMm = (dataWidth / get().metersPerCm) * 10;
+    }
+
+    set(newState);
   },
   
   clear: () => set({ surfaces: [], surfaceNames: [], visibleSurfaces: [], gridWidth: 0, gridHeight: 0, rotationX: 0, rotationY: 0, rotationZ: 0, dataMaxDimension: 1, dataWidth: 1, dataHeight: 1, cropXMin: 0, cropXMax: 100, cropYMin: 0, cropYMax: 100 })

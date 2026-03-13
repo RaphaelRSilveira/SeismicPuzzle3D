@@ -12,7 +12,8 @@ export function createLayerGeometry(
   averageVelocity: number,
   smoothOptions?: { enabled: boolean; iterations: number },
   referenceZ?: number,
-  bottomZFixed?: number
+  bottomZFixed?: number,
+  textureType?: string
 ) {
   const vertices = [];
   const uvs = [];
@@ -26,6 +27,40 @@ export function createLayerGeometry(
     }
     return depth * exaggeration;
   };
+
+  function getTactileDisplacement(x: number, y: number, z: number, type?: string): THREE.Vector3 {
+    if (!type || type === 'none') return new THREE.Vector3(0, 0, 0);
+    
+    // Use normalized-ish coordinates for consistent pattern scale
+    const nx = x * 0.8;
+    const ny = y * 0.8;
+    // Use a relative Z to keep pattern consistent across layers
+    const nz = (z - (referenceZ || 0)) * 0.5;
+
+    const amp = 2.5; 
+
+    if (type === 'rough') {
+      const noise = (Math.sin(nx * 1.5) * Math.cos(ny * 1.5) * Math.sin(nz * 1.5));
+      return new THREE.Vector3(noise * amp * 0.5, noise * amp * 0.5, noise * amp * 0.5);
+    }
+    if (type === 'dotted') {
+      const dot = Math.sin(nx) * Math.sin(ny) * Math.sin(nz);
+      const val = dot > 0.3 ? amp : 0;
+      return new THREE.Vector3(val * 0.4, val * 0.4, val * 0.8);
+    }
+    if (type === 'striped') {
+      const val = Math.sin(nx + ny + nz) * amp;
+      return new THREE.Vector3(val * 0.5, val * 0.5, val * 0.5);
+    }
+    if (type === 'grid') {
+      const gX = Math.sin(nx);
+      const gY = Math.sin(ny);
+      const gZ = Math.sin(nz);
+      const val = (Math.abs(gX) > 0.8 || Math.abs(gY) > 0.8 || Math.abs(gZ) > 0.8) ? amp * 0.6 : 0;
+      return new THREE.Vector3(val * 0.4, val * 0.4, val * 0.4);
+    }
+    return new THREE.Vector3(0, 0, 0);
+  }
 
   function smoothSurface(points: THREE.Vector3[], width: number, height: number, iterations: number) {
     let currentPoints = points.map(p => p.clone());
@@ -66,19 +101,22 @@ export function createLayerGeometry(
     for (let x = 0; x < gridWidth; x++) {
       const idx = y * gridWidth + x;
       const p = finalPointsTop[idx];
-      vertices.push(p.x, p.y, convertZ(p.z) - clearanceTop);
+      const rawZ = convertZ(p.z) - clearanceTop;
+      const disp = getTactileDisplacement(x, y, rawZ, textureType);
+      vertices.push(p.x + disp.x, p.y + disp.y, rawZ + disp.z);
       uvs.push(x / (gridWidth - 1), y / (gridHeight - 1));
     }
   }
 
   // Add Bottom Vertices
-  const offset = pointsTop.length;
+  const bottomOffset = vertices.length / 3;
   for (let y = 0; y < gridHeight; y++) {
     for (let x = 0; x < gridWidth; x++) {
       const idx = y * gridWidth + x;
       const p = finalPointsBottom[idx];
-      const z = bottomZFixed !== undefined ? bottomZFixed : convertZ(p.z);
-      vertices.push(p.x, p.y, z + clearanceBottom);
+      const rawZ = bottomZFixed !== undefined ? bottomZFixed : convertZ(p.z) + clearanceBottom;
+      const disp = bottomZFixed !== undefined ? new THREE.Vector3(0, 0, 0) : getTactileDisplacement(x, y, rawZ, textureType);
+      vertices.push(p.x + disp.x, p.y + disp.y, rawZ + disp.z);
       uvs.push(x / (gridWidth - 1), y / (gridHeight - 1));
     }
   }
@@ -90,7 +128,6 @@ export function createLayerGeometry(
       const b = x + 1 + gridWidth * y;
       const c = x + gridWidth * (y + 1);
       const d = x + 1 + gridWidth * (y + 1);
-
       indices.push(a, b, d);
       indices.push(a, d, c);
     }
@@ -99,55 +136,68 @@ export function createLayerGeometry(
   // Bottom faces (reversed)
   for (let y = 0; y < gridHeight - 1; y++) {
     for (let x = 0; x < gridWidth - 1; x++) {
-      const a = offset + x + gridWidth * y;
-      const b = offset + x + 1 + gridWidth * y;
-      const c = offset + x + gridWidth * (y + 1);
-      const d = offset + x + 1 + gridWidth * (y + 1);
-
+      const a = bottomOffset + x + gridWidth * y;
+      const b = bottomOffset + x + 1 + gridWidth * y;
+      const c = bottomOffset + x + gridWidth * (y + 1);
+      const d = bottomOffset + x + 1 + gridWidth * (y + 1);
       indices.push(a, d, b);
       indices.push(a, c, d);
     }
   }
 
-  // Side walls
+  // Side walls with vertical subdivision
+  const wallSubdivisions = textureType !== 'none' ? 4 : 1;
+  
+  const addWall = (p1Top: THREE.Vector3, p2Top: THREE.Vector3, p1Bottom: THREE.Vector3, p2Bottom: THREE.Vector3, x1: number, y1: number, x2: number, y2: number) => {
+    const wallStartIdx = vertices.length / 3;
+    
+    for (let s = 0; s <= wallSubdivisions; s++) {
+      const t = s / wallSubdivisions;
+      for (let i = 0; i < 2; i++) {
+        const pTop = i === 0 ? p1Top : p2Top;
+        const pBottom = i === 0 ? p1Bottom : p2Bottom;
+        const curX = i === 0 ? x1 : x2;
+        const curY = i === 0 ? y1 : y2;
+        
+        const rawZTop = convertZ(pTop.z) - clearanceTop;
+        const rawZBottom = bottomZFixed !== undefined ? bottomZFixed : convertZ(pBottom.z) + clearanceBottom;
+        
+        const rawZ = rawZTop * (1 - t) + rawZBottom * t;
+        const rawX = pTop.x * (1 - t) + pBottom.x * t;
+        const rawY = pTop.y * (1 - t) + pBottom.y * t;
+        
+        const disp = (bottomZFixed !== undefined && t === 1) ? new THREE.Vector3(0, 0, 0) : getTactileDisplacement(curX, curY, rawZ, textureType);
+        
+        vertices.push(rawX + disp.x, rawY + disp.y, rawZ + disp.z);
+        uvs.push(i, t);
+      }
+    }
+    
+    for (let s = 0; s < wallSubdivisions; s++) {
+      const r0 = wallStartIdx + s * 2;
+      const r1 = wallStartIdx + (s + 1) * 2;
+      indices.push(r0, r0 + 1, r1 + 1);
+      indices.push(r0, r1 + 1, r1);
+    }
+  };
+
   // Bottom edge (y = 0)
   for (let x = 0; x < gridWidth - 1; x++) {
-    const t1 = x;
-    const t2 = x + 1;
-    const b1 = offset + x;
-    const b2 = offset + x + 1;
-    indices.push(t1, b1, b2);
-    indices.push(t1, b2, t2);
+    addWall(finalPointsTop[x], finalPointsTop[x+1], finalPointsBottom[x], finalPointsBottom[x+1], x, 0, x+1, 0);
   }
-
   // Top edge (y = gridHeight - 1)
   for (let x = 0; x < gridWidth - 1; x++) {
-    const t1 = x + gridWidth * (gridHeight - 1);
-    const t2 = x + 1 + gridWidth * (gridHeight - 1);
-    const b1 = offset + x + gridWidth * (gridHeight - 1);
-    const b2 = offset + x + 1 + gridWidth * (gridHeight - 1);
-    indices.push(t1, t2, b2);
-    indices.push(t1, b2, b1);
+    const offsetRow = gridWidth * (gridHeight - 1);
+    addWall(finalPointsTop[offsetRow + x + 1], finalPointsTop[offsetRow + x], finalPointsBottom[offsetRow + x + 1], finalPointsBottom[offsetRow + x], x+1, gridHeight-1, x, gridHeight-1);
   }
-
   // Left edge (x = 0)
   for (let y = 0; y < gridHeight - 1; y++) {
-    const t1 = gridWidth * y;
-    const t2 = gridWidth * (y + 1);
-    const b1 = offset + gridWidth * y;
-    const b2 = offset + gridWidth * (y + 1);
-    indices.push(t1, t2, b2);
-    indices.push(t1, b2, b1);
+    addWall(finalPointsTop[gridWidth * (y + 1)], finalPointsTop[gridWidth * y], finalPointsBottom[gridWidth * (y + 1)], finalPointsBottom[gridWidth * y], 0, y+1, 0, y);
   }
-
   // Right edge (x = gridWidth - 1)
   for (let y = 0; y < gridHeight - 1; y++) {
-    const t1 = gridWidth - 1 + gridWidth * y;
-    const t2 = gridWidth - 1 + gridWidth * (y + 1);
-    const b1 = offset + gridWidth - 1 + gridWidth * y;
-    const b2 = offset + gridWidth - 1 + gridWidth * (y + 1);
-    indices.push(t1, b1, b2);
-    indices.push(t1, b2, t2);
+    const offsetCol = gridWidth - 1;
+    addWall(finalPointsTop[offsetCol + gridWidth * y], finalPointsTop[offsetCol + gridWidth * (y + 1)], finalPointsBottom[offsetCol + gridWidth * y], finalPointsBottom[offsetCol + gridWidth * (y + 1)], gridWidth-1, y, gridWidth-1, y+1);
   }
 
   const geometry = new THREE.BufferGeometry();

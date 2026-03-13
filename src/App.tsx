@@ -43,10 +43,10 @@ export default function App() {
     setBaseThicknessMm,
     setCropX,
     setCropY,
-    surfaceColors,
-    setSurfaceColor,
-    surfaceTextures,
-    setSurfaceTexture,
+    layerColors,
+    setLayerColor,
+    layerTextures,
+    setLayerTexture,
     showWireframe,
     setShowWireframe,
     explodedView,
@@ -75,6 +75,10 @@ export default function App() {
     setBasePieceName,
     basePieceColor,
     setBasePieceColor,
+    scaleMode,
+    setScaleMode,
+    metersPerCm,
+    setMetersPerCm,
     generateExample,
     clear
   } = useAppStore();
@@ -288,28 +292,8 @@ export default function App() {
                         value={name}
                         onChange={(e) => setSurfaceName(idx, e.target.value)}
                         className="bg-transparent border-b border-transparent hover:border-zinc-600 focus:border-emerald-500 focus:outline-none text-sm text-zinc-300 flex-1 min-w-0 px-1 py-0.5 transition-colors"
-                        title="Renomear camada"
+                        title="Renomear horizonte"
                       />
-                      
-                      <div className="flex items-center gap-2 shrink-0">
-                        <select
-                          value={surfaceTextures[idx] || 'none'}
-                          onChange={(e) => setSurfaceTexture(idx, e.target.value)}
-                          className="bg-zinc-800 border border-zinc-700 text-zinc-400 text-[10px] rounded px-1 py-0.5 focus:ring-emerald-500 focus:border-emerald-500 outline-none hover:border-zinc-600 transition-colors"
-                          title="Textura de Litologia"
-                        >
-                          {Object.entries(LITHOLOGY_LABELS).map(([key, label]) => (
-                            <option key={key} value={key}>{label}</option>
-                          ))}
-                        </select>
-                        <input 
-                          type="color" 
-                          value={surfaceColors[idx] || '#3b82f6'} 
-                          onChange={(e) => setSurfaceColor(idx, e.target.value)}
-                          className="w-5 h-5 rounded-full overflow-hidden border border-zinc-700 p-0 cursor-pointer bg-transparent hover:scale-110 transition-transform"
-                          title="Escolher cor"
-                        />
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -329,42 +313,62 @@ export default function App() {
                   <Box size={14} />
                   Peças (Volumes)
                 </h3>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                   {visibleLayers.map((visible, idx) => {
                     const isBaseLayer = idx === surfaces.length - 1 && showBasePlate;
                     const nameTop = surfaceNames[idx] || 'Superfície ' + idx;
-                    const nameBottom = isBaseLayer ? 'Limite Inferior (Plano)' : (surfaceNames[idx+1] || 'Superfície ' + (idx + 1));
+                    const nameBottom = isBaseLayer ? 'Base do Modelo' : (surfaceNames[idx+1] || 'Superfície ' + (idx + 1));
                     
                     return (
-                      <div key={idx} className="flex flex-col gap-1">
-                        <div className="flex items-center justify-between group">
-                          <label className="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer hover:text-zinc-200 transition-colors flex-1 min-w-0">
+                      <div key={idx} className="flex flex-col gap-2 p-2 rounded bg-zinc-900/40 border border-zinc-700/30">
+                        <div className="flex items-center justify-between group gap-2">
+                          <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors flex-1 min-w-0">
                             <input 
                               type="checkbox" 
                               checked={visible} 
                               onChange={() => toggleLayerVisibility(idx)}
                               className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
                             />
-                            <span className="truncate">
-                              {isBaseLayer ? 'Base do Modelo' : `Peça ${idx + 1}`}: {nameTop} → {nameBottom}
+                            <span className="truncate font-medium">
+                              {isBaseLayer ? 'Peça Base' : `Peça ${idx + 1}`}
                             </span>
                           </label>
+                          
+                          <div className="flex items-center gap-2 shrink-0">
+                            <select
+                              value={layerTextures[idx] || 'none'}
+                              onChange={(e) => setLayerTexture(idx, e.target.value)}
+                              className="bg-zinc-800 border border-zinc-700 text-zinc-400 text-[10px] rounded px-1 py-0.5 focus:ring-emerald-500 focus:border-emerald-500 outline-none hover:border-zinc-600 transition-colors"
+                              title="Textura Tátil (3D)"
+                            >
+                              {Object.entries(LITHOLOGY_LABELS).map(([key, label]) => (
+                                <option key={key} value={key}>{label}</option>
+                              ))}
+                            </select>
+                            <input 
+                              type="color" 
+                              value={layerColors[idx] || '#3b82f6'} 
+                              onChange={(e) => setLayerColor(idx, e.target.value)}
+                              className="w-5 h-5 rounded-full overflow-hidden border border-zinc-700 p-0 cursor-pointer bg-transparent hover:scale-110 transition-transform"
+                              title="Escolher cor"
+                            />
+                          </div>
                         </div>
+                        
+                        <div className="flex items-center gap-1 text-[10px] text-zinc-500 ml-6">
+                          <span className="truncate">{nameTop}</span>
+                          <span className="px-1">→</span>
+                          <span className="truncate">{nameBottom}</span>
+                        </div>
+
                         {isBaseLayer && (
-                          <div className="flex items-center gap-2 ml-6">
+                          <div className="flex items-center gap-2 ml-6 mt-1">
                             <input
                               type="text"
                               value={basePieceName}
                               onChange={(e) => setBasePieceName(e.target.value)}
-                              className="bg-transparent border-b border-zinc-700 hover:border-zinc-600 focus:border-emerald-500 focus:outline-none text-xs text-zinc-400 flex-1 min-w-0 px-1 py-0.5 transition-colors"
-                              placeholder="Nome da peça base"
-                            />
-                            <input 
-                              type="color" 
-                              value={basePieceColor} 
-                              onChange={(e) => setBasePieceColor(e.target.value)}
-                              className="w-4 h-4 rounded-full overflow-hidden border border-zinc-700 p-0 cursor-pointer bg-transparent"
-                              title="Cor da peça base"
+                              className="bg-transparent border-b border-zinc-700 hover:border-zinc-600 focus:border-emerald-500 focus:outline-none text-[10px] text-zinc-400 flex-1 min-w-0 px-1 py-0.5 transition-colors"
+                              placeholder="Nome na legenda"
                             />
                           </div>
                         )}
@@ -383,23 +387,62 @@ export default function App() {
           <section className="flex flex-col gap-6">
             <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
               <Settings size={16} />
-              Parâmetros
+              Dimensões e Escala
             </h2>
 
+            <div className="flex bg-zinc-800 p-1 rounded-lg">
+              <button 
+                onClick={() => setScaleMode('size')}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${scaleMode === 'size' ? 'bg-zinc-700 text-emerald-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                Tamanho Fixo
+              </button>
+              <button 
+                onClick={() => setScaleMode('scale')}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${scaleMode === 'scale' ? 'bg-zinc-700 text-emerald-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}`}
+              >
+                Escala Real
+              </button>
+            </div>
+
+            {scaleMode === 'size' ? (
+              <div className="flex flex-col gap-2">
+                <label className="text-sm text-zinc-300 font-medium flex justify-between">
+                  Tamanho do Modelo (mm)
+                  <span className="text-zinc-500 font-mono">{modelSizeMm}</span>
+                </label>
+                <input
+                  type="range"
+                  min="50"
+                  max="300"
+                  step="10"
+                  value={modelSizeMm}
+                  onChange={(e) => setModelSizeMm(Number(e.target.value))}
+                  className="w-full accent-emerald-500"
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <label className="text-sm text-zinc-300 font-medium flex justify-between">
+                  Escala (1cm = X metros)
+                  <span className="text-zinc-500 font-mono">{metersPerCm}m</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-zinc-500">1:</span>
+                  <input
+                    type="number"
+                    value={metersPerCm}
+                    onChange={(e) => setMetersPerCm(Number(e.target.value))}
+                    className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2"
+                  />
+                </div>
+                <p className="text-[10px] text-zinc-500 italic">
+                  Tamanho resultante: {modelSizeMm.toFixed(1)}mm
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
-              <label className="text-sm text-zinc-300 font-medium flex justify-between">
-                Tamanho do Modelo (mm)
-                <span className="text-zinc-500 font-mono">{modelSizeMm}</span>
-              </label>
-              <input
-                type="range"
-                min="50"
-                max="300"
-                step="10"
-                value={modelSizeMm}
-                onChange={(e) => setModelSizeMm(Number(e.target.value))}
-                className="w-full accent-emerald-500"
-              />
               <label className="flex items-center gap-2 mt-1 text-sm text-zinc-300 cursor-pointer">
                 <input 
                   type="checkbox" 

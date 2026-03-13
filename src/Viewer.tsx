@@ -6,7 +6,7 @@ import { useAppStore } from './store';
 import { createLayerGeometry } from './geometry';
 import { LITHOLOGY_TEXTURES } from './textures';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-import { Box, Square, Download, FileCode } from 'lucide-react';
+import { Box, Square, Download, FileCode, Sun } from 'lucide-react';
 import { exportTo3MF } from './export3mf';
 
 function PuzzleLayer({
@@ -20,12 +20,13 @@ function PuzzleLayer({
   isTimeScale,
   averageVelocity,
   color,
-  textureUrl,
+  textureType,
   showWireframe,
   colorMap,
   smoothOptions,
   referenceZ,
-  bottomZFixed
+  bottomZFixed,
+  name
 }: {
   topSurface: THREE.Vector3[];
   bottomSurface: THREE.Vector3[];
@@ -37,25 +38,14 @@ function PuzzleLayer({
   isTimeScale: boolean;
   averageVelocity: number;
   color: string;
-  textureUrl?: string | null;
+  textureType?: string | null;
   showWireframe: boolean;
   colorMap: 'none' | 'rainbow' | 'viridis' | 'magma';
   smoothOptions?: { enabled: boolean; iterations: number };
   referenceZ?: number;
   bottomZFixed?: number;
+  name?: string;
 }) {
-  const texture = useMemo(() => {
-    if (!textureUrl) return null;
-    const loader = new THREE.TextureLoader();
-    const tex = loader.load(textureUrl);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    // Adjust repeat based on grid dimensions to keep texture square-ish
-    const aspect = gridWidth / gridHeight;
-    tex.repeat.set(8 * aspect, 8); 
-    return tex;
-  }, [textureUrl, gridWidth, gridHeight]);
-
   const geometry = useMemo(() => {
     const geom = createLayerGeometry(
       gridWidth,
@@ -69,7 +59,8 @@ function PuzzleLayer({
       averageVelocity,
       smoothOptions,
       referenceZ,
-      bottomZFixed
+      bottomZFixed,
+      textureType || 'none'
     );
 
     if (colorMap !== 'none') {
@@ -106,26 +97,25 @@ function PuzzleLayer({
     }
 
     return geom;
-  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap]);
+  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap, textureType, smoothOptions, referenceZ, bottomZFixed]);
 
   return (
-    <mesh geometry={geometry} castShadow receiveShadow>
+    <mesh geometry={geometry} castShadow receiveShadow name={name}>
       <meshStandardMaterial 
         color={colorMap === 'none' ? color : '#ffffff'} 
-        map={colorMap === 'none' ? texture : null}
         vertexColors={colorMap !== 'none'}
         roughness={0.8} 
         metalness={0.0} 
         side={THREE.DoubleSide} 
         wireframe={showWireframe}
-        flatShading={false}
+        flatShading={textureType !== 'none'}
       />
     </mesh>
   );
 }
 
 export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
-  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, surfaceColors, surfaceTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, basePieceColor } = useAppStore();
+  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, layerTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity } = useAppStore();
 
   if (surfaces.length === 0) return null;
 
@@ -223,9 +213,9 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 
     const isFlatBaseLayer = showBasePlate && i === numLayers - 1;
     
-    const layerColor = isFlatBaseLayer ? basePieceColor : (surfaceColors[i] || '#3b82f6');
-    const textureKey = isFlatBaseLayer ? 'none' : (surfaceTextures[i] as keyof typeof LITHOLOGY_TEXTURES || 'none');
-    const textureUrl = LITHOLOGY_TEXTURES[textureKey];
+    const layerColor = layerColors[i] || '#3b82f6';
+    const textureType = layerTextures[i] || 'none';
+    const layerName = isFlatBaseLayer ? basePieceName : `Peca ${i + 1}`;
 
     // Exploded view offset
     const explodedOffset = explodedView ? (numLayers - 1 - i) * (modelSizeMm * 0.2) / scaleZ : 0;
@@ -233,7 +223,8 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     layers.push(
       <group key={`layer-group-${i}`} position={[0, 0, explodedOffset]}>
         <PuzzleLayer
-          key={`layer-${i}-${colorMap}-${layerColor}-${textureKey}`}
+          key={`layer-${i}-${colorMap}-${layerColor}-${textureType}`}
+          name={layerName}
           topSurface={topSurface}
           bottomSurface={bottomSurface}
           gridWidth={croppedGridWidth}
@@ -244,7 +235,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           isTimeScale={isTimeScale}
           averageVelocity={averageVelocity}
           color={layerColor}
-          textureUrl={textureUrl}
+          textureType={textureType}
           smoothOptions={{
             enabled: smoothMesh,
             iterations: smoothIterations
@@ -368,7 +359,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
             if (!visible) return null;
             const isBaseLayer = showBasePlate && idx === visibleLayers.length - 1;
             const name = isBaseLayer ? basePieceName : (surfaceNames[idx] || `Peça ${idx + 1}`);
-            const color = isBaseLayer ? basePieceColor : (surfaceColors[idx] || '#ffffff');
+            const color = layerColors[idx] || '#ffffff';
             
             return (
               <group key={`legend-${idx}`} position={[0, -idx * 6 * textScale, 0]}>
@@ -434,6 +425,8 @@ function CameraController({ viewTrigger, viewType }: { viewTrigger: number, view
 export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
   const [viewTrigger, setViewTrigger] = useState(0);
   const [viewType, setViewType] = useState('iso');
+  const [showLightingSlider, setShowLightingSlider] = useState(false);
+  const { lightingIntensity, setLightingIntensity } = useAppStore();
 
   const handleViewChange = (type: string) => {
     setViewType(type);
@@ -495,6 +488,36 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
         <button onClick={handleExport3MF} className="p-2 hover:bg-blue-900/40 rounded text-blue-500 hover:text-blue-400 transition-colors" title="Exportar 3MF (Bambu Studio)">
           <FileCode size={20} />
         </button>
+
+        <div className="h-px bg-zinc-700 my-1 mx-2" />
+
+        <div className="relative group/light">
+          <button 
+            onClick={() => setShowLightingSlider(!showLightingSlider)} 
+            className={`p-2 rounded transition-colors ${showLightingSlider ? 'bg-amber-500/20 text-amber-500' : 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100'}`}
+            title="Ajustar Iluminação"
+          >
+            <Sun size={20} />
+          </button>
+          
+          {showLightingSlider && (
+            <div className="absolute right-full mr-4 top-0 bg-zinc-800/95 p-3 rounded-lg border border-zinc-700 shadow-xl backdrop-blur-sm flex flex-col gap-2 min-w-[150px]">
+              <div className="flex justify-between items-center">
+                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Brilho</span>
+                <span className="text-[10px] font-mono text-amber-500">{Math.round(lightingIntensity * 100)}%</span>
+              </div>
+              <input 
+                type="range" 
+                min="0.1" 
+                max="2" 
+                step="0.1" 
+                value={lightingIntensity} 
+                onChange={(e) => setLightingIntensity(parseFloat(e.target.value))}
+                className="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       <Canvas 
@@ -503,12 +526,43 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
         gl={{ antialias: true, toneMappingExposure: 1.0 }}
       >
         <color attach="background" args={['#18181b']} />
-        <ambientLight intensity={0.5} />
-        <hemisphereLight intensity={0.35} color="#ffffff" groundColor="#222222" />
-        <pointLight position={[2000, 2000, 2000]} intensity={0.7} />
-        <directionalLight position={[1000, 2000, 1000]} intensity={0.85} castShadow />
-        <directionalLight position={[-1000, 1000, -1000]} intensity={0.4} />
-        <directionalLight position={[0, -1000, 500]} intensity={0.25} />
+        
+        {/* Configuração de Iluminação Uniforme e Estática */}
+        <ambientLight intensity={0.5 * lightingIntensity} />
+        
+        {/* Luz Principal (Frontal Direita Superior) */}
+        <directionalLight 
+          position={[300, 300, 400]} 
+          intensity={1.2 * lightingIntensity} 
+          castShadow 
+          shadow-mapSize={[1024, 1024]}
+        />
+        
+        {/* Luz de Preenchimento (Frontal Esquerda) */}
+        <directionalLight 
+          position={[-300, 200, 200]} 
+          intensity={0.6 * lightingIntensity} 
+        />
+        
+        {/* Luz de Contra (Traseira) */}
+        <directionalLight 
+          position={[0, -400, 100]} 
+          intensity={0.4 * lightingIntensity} 
+        />
+        
+        {/* Luz de Base (Inferior) */}
+        <directionalLight 
+          position={[0, 0, -300]} 
+          intensity={0.3 * lightingIntensity} 
+        />
+
+        {/* Ponto de brilho extra para destacar texturas */}
+        <pointLight 
+          position={[100, 100, 500]} 
+          intensity={0.5 * lightingIntensity} 
+          distance={2000}
+          decay={2}
+        />
         
         <React.Suspense fallback={null}>
           <Scene groupRef={groupRef} />
