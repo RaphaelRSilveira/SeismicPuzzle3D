@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Fundo escuro arredondado -->
+  <rect width="32" height="32" rx="8" fill="#18181b"/>
+  
+  <!-- Linhas de horizontes sísmicos em degradê de esmeralda -->
+  <path d="M4 10C8 8 12 12 16 10C20 8 24 12 28 10" stroke="#10b981" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M4 17C8 15 12 19 16 17C20 15 24 19 28 17" stroke="#059669" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <path d="M4 24C8 22 12 26 16 24C20 22 24 26 28 24" stroke="#047857" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  
+  <!-- Detalhe técnico lateral (grid) -->
+  <rect x="2" y="2" width="28" height="28" rx="6" stroke="#10b981" stroke-width="0.5" fill="none" opacity="0.2"/>
+</svg>
