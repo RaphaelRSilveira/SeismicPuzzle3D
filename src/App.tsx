@@ -80,7 +80,7 @@ export default function App() {
   } = useAppStore();
 
   useEffect(() => {
-    document.title = "SeismicPuzzle3D";
+    document.title = "SeismicPuzzle3D v1.0";
   }, []);
 
   const [files, setFiles] = useState<File[]>([]);
