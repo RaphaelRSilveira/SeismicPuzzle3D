@@ -80,6 +80,7 @@ export default function App() {
   } = useAppStore();
 
   useEffect(() => {
+    // Force document title update
     document.title = "SeismicPuzzle3D v1.0";
   }, []);
 
