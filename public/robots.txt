@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://raphaelrsilveira.github.io/SeismicPuzzle3D/sitemap.xml
