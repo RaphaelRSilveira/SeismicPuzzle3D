@@ -6,8 +6,12 @@ import { useAppStore, Fault } from './store';
 import { createLayerGeometry } from './geometry';
 import { LITHOLOGY_TEXTURES } from './textures';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-import { Box, Square, Download, FileCode, Sun, Activity } from 'lucide-react';
+import { Box, Square, Download, FileCode, Sun, Activity, Archive } from 'lucide-react';
 import { exportTo3MF } from './export3mf';
+import { exportToZIP } from './exportZip';
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
+import { Evaluator, Brush, SUBTRACTION, ADDITION } from 'three-bvh-csg';
+import { loadFont } from './fontLoader';
 
 // Helper for Z conversion (matching geometry.ts)
 const convertZValue = (z: number, isTimeScale: boolean, averageVelocity: number, exaggeration: number, referenceZ?: number) => {
@@ -153,10 +157,18 @@ function PuzzleLayer({
   smoothOptions,
   referenceZ,
   bottomZFixed,
+  directionUp,
   name,
   faults,
   faultWidth,
-  showFaults
+  showFaults,
+  labelNumber,
+  labelSize,
+  labelThickness,
+  labelX,
+  globalMaxTextSize,
+  scaleX,
+  scaleZ
 }: {
   topSurface: THREE.Vector3[];
   bottomSurface: THREE.Vector3[];
@@ -174,10 +186,18 @@ function PuzzleLayer({
   smoothOptions?: { enabled: boolean; iterations: number };
   referenceZ?: number;
   bottomZFixed?: number;
+  directionUp: number;
   name?: string;
   faults: Fault[];
   faultWidth: number;
   showFaults: boolean;
+  labelNumber?: number;
+  labelSize?: number;
+  labelThickness?: number;
+  labelX?: number;
+  globalMaxTextSize?: number;
+  scaleX: number;
+  scaleZ: number;
 }) {
   const geometry = useMemo(() => {
     const geom = createLayerGeometry(
@@ -193,7 +213,8 @@ function PuzzleLayer({
       smoothOptions,
       referenceZ,
       bottomZFixed,
-      textureType || 'none'
+      textureType || 'none',
+      directionUp
     );
 
     if (colorMap !== 'none') {
@@ -229,7 +250,179 @@ function PuzzleLayer({
     }
 
     return geom;
-  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap, textureType, smoothOptions, referenceZ, bottomZFixed]);
+  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap, textureType, smoothOptions, referenceZ, bottomZFixed, directionUp]);
+
+  const [finalGeometry, setFinalGeometry] = useState<THREE.BufferGeometry>(geometry);
+
+  useEffect(() => {
+    if (labelNumber === undefined) {
+      setFinalGeometry(geometry);
+      return;
+    }
+
+    let isMounted = true;
+
+    loadFont().then(font => {
+      if (!isMounted) return;
+
+      geometry.computeBoundingBox();
+      const gBox = geometry.boundingBox!;
+      const gWidth = gBox.max.x - gBox.min.x;
+      const gHeight = gBox.max.y - gBox.min.y;
+
+      const southY = gBox.max.y;
+      const marginX = 5 / scaleX;
+      let marginZ = 2 / scaleZ;
+      
+      // Initial X position for thickness calculation
+      const initialX = labelX !== undefined ? labelX : gBox.max.x - marginX;
+      
+      const szBottomInit = getSurfaceZAt(initialX, southY, bottomSurface, gridWidth, gridHeight);
+      const zBottomInit = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szBottomInit, isTimeScale, averageVelocity, exaggeration, referenceZ) + clearanceBottom;
+
+      const szTopInit = getSurfaceZAt(initialX, southY, topSurface, gridWidth, gridHeight);
+      const zTopInit = convertZValue(szTopInit, isTimeScale, averageVelocity, exaggeration, referenceZ) - clearanceTop;
+      
+      const isDepthMode = directionUp < 0;
+      const thickness = Math.abs(zBottomInit - zTopInit);
+
+      // Calculate text size based on piece thickness and width
+      // Use provided labelSize (in mm) converted to raw units, or fallback to auto
+      const requestedTextSize = (labelSize || 8) / scaleZ;
+      const minTextSize = 3 / scaleZ; // 3mm minimum
+      const localMaxTextSize = Math.max(minTextSize, Math.min(gWidth * 0.15, thickness * 0.6));
+      const maxTextSize = globalMaxTextSize !== undefined ? globalMaxTextSize : localMaxTextSize;
+      
+      // Clamp the requested size to the calculated maximum to prevent it from breaking the piece
+      const textSize = Math.min(requestedTextSize, maxTextSize);
+      
+      // Depth of emboss: Use provided labelThickness (in mm) converted to raw units, or fallback to 2mm
+      const rawDepth = (labelThickness || 2) / scaleZ;
+
+      const textGeo = new TextGeometry(labelNumber.toString(), {
+        font: font,
+        size: textSize,
+        depth: rawDepth * 2, // Double depth to ensure deep intersection with the main body
+        curveSegments: 4,
+        bevelEnabled: false
+      });
+
+      textGeo.computeBoundingBox();
+      let tBox = textGeo.boundingBox!;
+      let tWidth = tBox.max.x - tBox.min.x;
+      let tHeight = tBox.max.y - tBox.min.y;
+      let tDepth = tBox.max.z - tBox.min.z;
+
+      // Center text at origin
+      textGeo.translate(-tBox.min.x - tWidth / 2, -tBox.min.y - tHeight / 2, -tBox.min.z - tDepth / 2);
+
+      const dummy = new THREE.Object3D();
+      
+      // Clamp posX so the text doesn't stick out of the piece bounds
+      const minPosX = gBox.min.x + marginX + tWidth / 2;
+      const maxPosX = gBox.max.x - marginX - tWidth / 2;
+      const posX = Math.max(minPosX, Math.min(maxPosX, initialX));
+      
+      // Sample Z along the text width to find the tightest vertical bounds
+      const numSamples = 5;
+      let safeTop = isDepthMode ? -Infinity : Infinity;
+      let safeBottom = isDepthMode ? Infinity : -Infinity;
+
+      for (let i = 0; i <= numSamples; i++) {
+        const sampleX = posX - tWidth/2 + (tWidth * i / numSamples);
+        
+        const szB = getSurfaceZAt(sampleX, southY, bottomSurface, gridWidth, gridHeight);
+        const zB = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szB, isTimeScale, averageVelocity, exaggeration, referenceZ) + clearanceBottom;
+        
+        const szT = getSurfaceZAt(sampleX, southY, topSurface, gridWidth, gridHeight);
+        const zT = convertZValue(szT, isTimeScale, averageVelocity, exaggeration, referenceZ) - clearanceTop;
+
+        if (isDepthMode) {
+          safeTop = Math.max(safeTop, zT); // Largest Z (lowest physical point of top surface)
+          safeBottom = Math.min(safeBottom, zB); // Smallest Z (highest physical point of bottom surface)
+        } else {
+          safeTop = Math.min(safeTop, zT); // Smallest Z (lowest physical point of top surface)
+          safeBottom = Math.max(safeBottom, zB); // Largest Z (highest physical point of bottom surface)
+        }
+      }
+
+      let availableThickness = Math.abs(safeBottom - safeTop) - marginZ * 2;
+      const availableWidth = (gBox.max.x - gBox.min.x) - marginX * 2;
+      
+      if (availableThickness <= 0.1) {
+        const absoluteThickness = Math.abs(safeBottom - safeTop);
+        availableThickness = Math.max(0.1, absoluteThickness * 0.8);
+        marginZ = absoluteThickness * 0.1;
+      }
+      
+      // If the text is still too tall or too wide for the available space, scale it down dynamically
+      let scaleDown = 1;
+      if (tHeight > availableThickness) {
+        scaleDown = Math.min(scaleDown, availableThickness / tHeight);
+      }
+      if (tWidth > availableWidth && availableWidth > 0.1) {
+        scaleDown = Math.min(scaleDown, availableWidth / tWidth);
+      }
+      
+      if (scaleDown < 1) {
+        textGeo.scale(scaleDown, scaleDown, scaleDown);
+        
+        textGeo.computeBoundingBox();
+        tBox = textGeo.boundingBox!;
+        tWidth = tBox.max.x - tBox.min.x;
+        tHeight = tBox.max.y - tBox.min.y;
+        tDepth = tBox.max.z - tBox.min.z;
+        
+        // Re-center after scaling
+        textGeo.translate(-tBox.min.x - tWidth / 2, -tBox.min.y - tHeight / 2, -tBox.min.z - tDepth / 2);
+      }
+      
+      // Re-clamp posX after potential scaling
+      const finalMinPosX = gBox.min.x + marginX + tWidth / 2;
+      const finalMaxPosX = gBox.max.x - marginX - tWidth / 2;
+      const finalPosX = Math.max(finalMinPosX, Math.min(finalMaxPosX, posX));
+
+      // Now place the text vertically
+      let posZ;
+      if (isDepthMode) {
+        posZ = safeBottom - marginZ - tHeight / 2;
+        posZ = Math.max(safeTop + tHeight / 2 + marginZ, posZ);
+      } else {
+        posZ = safeBottom + marginZ + tHeight / 2;
+        posZ = Math.min(safeTop - tHeight / 2 - marginZ, posZ);
+      }
+      
+      dummy.position.set(finalPosX, southY, posZ);
+      
+      // We want the text to face outwards (+Y)
+      dummy.up.set(0, 0, isDepthMode ? -1 : 1);
+      dummy.lookAt(finalPosX, southY + 1, posZ);
+      
+      dummy.updateMatrix();
+      textGeo.applyMatrix4(dummy.matrix);
+
+      const brush1 = new Brush(geometry);
+      const brush2 = new Brush(textGeo);
+      brush1.updateMatrixWorld();
+      brush2.updateMatrixWorld();
+
+      const evaluator = new Evaluator();
+      const result = evaluator.evaluate(brush1, brush2, ADDITION);
+
+      if (geometry.hasAttribute('color')) {
+        result.geometry.setAttribute('color', geometry.getAttribute('color')!);
+      }
+
+      setFinalGeometry(result.geometry);
+    }).catch(err => {
+      console.error("Failed to load font for embossing", err);
+      if (isMounted) setFinalGeometry(geometry);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [geometry, labelNumber, scaleZ, bottomSurface, topSurface, gridWidth, gridHeight, isTimeScale, averageVelocity, exaggeration, referenceZ, clearanceBottom, clearanceTop, bottomZFixed]);
 
   const faultTraces = useMemo(() => {
     if (!showFaults || !faults || faults.length === 0) return null;
@@ -376,7 +569,7 @@ function PuzzleLayer({
 
   return (
     <group>
-      <mesh geometry={geometry} castShadow receiveShadow name={name}>
+      <mesh geometry={finalGeometry} castShadow receiveShadow name={name}>
         <meshStandardMaterial 
           color={colorMap === 'none' ? color : '#ffffff'} 
           vertexColors={colorMap !== 'none'}
@@ -393,7 +586,7 @@ function PuzzleLayer({
 }
 
 export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
-  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, layerTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity, faults, faultWidth, showFaults } = useAppStore();
+  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, layerTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity, faults, faultWidth, showFaults, embossLabels, labelSize, labelThickness } = useAppStore();
 
   if (surfaces.length === 0) return null;
 
@@ -472,6 +665,57 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
   const layers = [];
   const numLayers = allSurfaces.length - 1;
 
+  // Calculate best label positions and global max text size
+  const labelPositions: { x: number, maxThickness: number }[] = [];
+  let minOfMaxThicknesses = Infinity;
+
+  if (embossLabels) {
+    for (let i = 0; i < numLayers; i++) {
+      if (i < visibleLayers.length && !visibleLayers[i]) {
+        labelPositions.push({ x: (minX + maxX) / 2, maxThickness: Infinity });
+        continue;
+      }
+      
+      const topSurface = allSurfaces[i];
+      const bottomSurface = allSurfaces[i+1];
+      
+      let bestX = (minX + maxX) / 2;
+      let maxThickness = 0;
+      
+      // Sample along the South wall (y = maxY)
+      const samples = 50;
+      for (let s = 0; s <= samples; s++) {
+        const t = s / samples;
+        // Leave a 15% margin on edges to avoid placing text too close to the corners
+        const x = minX + (maxX - minX) * (0.15 + 0.7 * t);
+        
+        const szT = getSurfaceZAt(x, maxY, topSurface, croppedGridWidth, croppedGridHeight);
+        const zT = convertZValue(szT, isTimeScale, averageVelocity, verticalExaggeration, exaggerationRefZ) - (i === 0 ? 0 : rawClearance / 2);
+        
+        let zB;
+        if (showBasePlate && i === numLayers - 1) {
+          zB = bottomZFixedValue!;
+        } else {
+          const szB = getSurfaceZAt(x, maxY, bottomSurface, croppedGridWidth, croppedGridHeight);
+          zB = convertZValue(szB, isTimeScale, averageVelocity, verticalExaggeration, exaggerationRefZ) + (i === numLayers - 1 ? 0 : rawClearance / 2);
+        }
+        
+        const thickness = Math.abs(zB - zT);
+        if (thickness > maxThickness) {
+          maxThickness = thickness;
+          bestX = x;
+        }
+      }
+      
+      labelPositions.push({ x: bestX, maxThickness });
+      if (maxThickness < minOfMaxThicknesses) {
+        minOfMaxThicknesses = maxThickness;
+      }
+    }
+  }
+  
+  const globalMaxTextSize = minOfMaxThicknesses === Infinity ? undefined : minOfMaxThicknesses * 0.6;
+
   for (let i = 0; i < numLayers; i++) {
     // A layer exists between allSurfaces[i] and allSurfaces[i+1]
     // Layer i is visible if visibleLayers[i] is true
@@ -494,6 +738,13 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     const layerColor = layerColors[i] || '#3b82f6';
     const textureType = layerTextures[i] || 'none';
     const layerName = isFlatBaseLayer ? basePieceName : `Peca ${i + 1}`;
+    
+    let labelNumber: number | undefined = undefined;
+    let labelX: number | undefined = undefined;
+    if (embossLabels) {
+      labelNumber = numLayers - i;
+      labelX = labelPositions[i]?.x;
+    }
 
     // Exploded view offset
     const explodedOffset = explodedView ? (numLayers - 1 - i) * (modelSizeMm * 0.2) / scaleZ : 0;
@@ -501,8 +752,15 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     layers.push(
       <group key={`layer-group-${i}`} position={[0, 0, explodedOffset]}>
         <PuzzleLayer
-          key={`layer-${i}-${colorMap}-${layerColor}-${textureType}`}
+          key={`layer-${i}-${colorMap}-${layerColor}-${textureType}-${labelNumber}-${labelSize}-${labelThickness}-${labelX}-${globalMaxTextSize}`}
           name={layerName}
+          labelNumber={labelNumber}
+          labelSize={labelSize}
+          labelThickness={labelThickness}
+          labelX={labelX}
+          globalMaxTextSize={globalMaxTextSize}
+          scaleX={scaleX}
+          scaleZ={scaleZ}
           topSurface={topSurface}
           bottomSurface={bottomSurface}
           gridWidth={croppedGridWidth}
@@ -522,6 +780,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           colorMap={colorMap}
           referenceZ={exaggerationRefZ}
           bottomZFixed={isFlatBaseLayer ? bottomZFixedValue : undefined}
+          directionUp={directionUp}
           faults={faults}
           faultWidth={faultWidth}
           showFaults={showFaults}
@@ -597,7 +856,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 
     layers.push(
       <group key="base-plate" position={[bpCenterX, bpCenterY, centerZ]}>
-        <mesh receiveShadow castShadow>
+        <mesh receiveShadow castShadow name="Base_Suporte">
           <boxGeometry args={[bpWidth, bpHeight, bpThickness]} />
           <meshStandardMaterial color={basePlateColor} roughness={0.9} />
         </mesh>
@@ -606,6 +865,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
         {basePlateTitle && (
           <group position={[textStartX, -bpHeight / 2 + (basePlateSubtitle ? 10 * textScale : 4 * textScale), textZ]}>
             <Text3D 
+              name="Texto_Titulo"
               font={fontUrl} 
               size={8 * textScale} 
               height={textRelief} 
@@ -622,6 +882,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
         {basePlateSubtitle && (
           <group position={[textStartX, -bpHeight / 2 + 4 * textScale, textZ]}>
             <Text3D 
+              name="Texto_Subtitulo"
               font={fontUrl} 
               size={4 * textScale} 
               height={textRelief} 
@@ -644,11 +905,12 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
             
             return (
               <group key={`legend-${idx}`} position={[0, -idx * 6 * textScale, 0]}>
-                <mesh position={[0, 2 * textScale, textRelief / 2]}>
+                <mesh position={[0, 2 * textScale, textRelief / 2]} name={`Legenda_Cor_${idx + 1}`}>
                   <boxGeometry args={[4 * textScale, 4 * textScale, textRelief]} />
                   <meshStandardMaterial color={color} />
                 </mesh>
                 <Text3D 
+                  name={`Legenda_Texto_${idx + 1}`}
                   font={fontUrl} 
                   size={3 * textScale} 
                   height={textRelief} 
@@ -745,6 +1007,23 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
     }
   };
 
+  const handleExportZIP = async () => {
+    if (!groupRef.current) return;
+    const meshes: THREE.Mesh[] = [];
+    const names: string[] = [];
+    
+    groupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        meshes.push(child);
+        names.push(child.name || 'Layer');
+      }
+    });
+
+    if (meshes.length > 0) {
+      await exportToZIP(meshes, names);
+    }
+  };
+
   return (
     <div className="w-full flex-1 min-h-0 relative bg-zinc-900 rounded-xl overflow-hidden shadow-inner border border-zinc-800">
       {/* Toolbar de Câmera */}
@@ -763,8 +1042,11 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
         
         <div className="h-px bg-zinc-700 my-1 mx-2" />
         
-        <button onClick={handleExportSTL} className="p-2 hover:bg-emerald-900/40 rounded text-emerald-500 hover:text-emerald-400 transition-colors" title="Exportar STL">
+        <button onClick={handleExportSTL} className="p-2 hover:bg-emerald-900/40 rounded text-emerald-500 hover:text-emerald-400 transition-colors" title="Exportar Cena (STL Único)">
           <Download size={20} />
+        </button>
+        <button onClick={handleExportZIP} className="p-2 hover:bg-purple-900/40 rounded text-purple-500 hover:text-purple-400 transition-colors" title="Exportar Peças Separadas (ZIP com STLs)">
+          <Archive size={20} />
         </button>
         <button onClick={handleExport3MF} className="p-2 hover:bg-blue-900/40 rounded text-blue-500 hover:text-blue-400 transition-colors" title="Exportar 3MF (Bambu Studio)">
           <FileCode size={20} />

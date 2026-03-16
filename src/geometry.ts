@@ -13,7 +13,8 @@ export function createLayerGeometry(
   smoothOptions?: { enabled: boolean; iterations: number },
   referenceZ?: number,
   bottomZFixed?: number,
-  textureType?: string
+  textureType?: string,
+  directionUp: number = -1
 ) {
   const vertices = [];
   const uvs = [];
@@ -96,12 +97,14 @@ export function createLayerGeometry(
     ? smoothSurface(pointsBottom, gridWidth, gridHeight, smoothOptions.iterations)
     : pointsBottom;
 
+  const sign = directionUp < 0 ? -1 : 1;
+
   // Add Top Vertices
   for (let y = 0; y < gridHeight; y++) {
     for (let x = 0; x < gridWidth; x++) {
       const idx = y * gridWidth + x;
       const p = finalPointsTop[idx];
-      const rawZ = convertZ(p.z) - clearanceTop;
+      const rawZ = convertZ(p.z) - sign * clearanceTop;
       const disp = getTactileDisplacement(x, y, rawZ, textureType);
       vertices.push(p.x + disp.x, p.y + disp.y, rawZ + disp.z);
       uvs.push(x / (gridWidth - 1), y / (gridHeight - 1));
@@ -114,7 +117,7 @@ export function createLayerGeometry(
     for (let x = 0; x < gridWidth; x++) {
       const idx = y * gridWidth + x;
       const p = finalPointsBottom[idx];
-      const rawZ = bottomZFixed !== undefined ? bottomZFixed : convertZ(p.z) + clearanceBottom;
+      const rawZ = bottomZFixed !== undefined ? bottomZFixed : convertZ(p.z) + sign * clearanceBottom;
       const disp = bottomZFixed !== undefined ? new THREE.Vector3(0, 0, 0) : getTactileDisplacement(x, y, rawZ, textureType);
       vertices.push(p.x + disp.x, p.y + disp.y, rawZ + disp.z);
       uvs.push(x / (gridWidth - 1), y / (gridHeight - 1));

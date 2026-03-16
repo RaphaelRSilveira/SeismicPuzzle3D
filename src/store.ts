@@ -47,6 +47,9 @@ export interface AppState {
   basePlatePadding: number;
   basePlateThicknessMm: number;
   basePlateTextRelief: number;
+  embossLabels: boolean;
+  labelSize: number;
+  labelThickness: number;
   basePieceName: string;
   basePieceColor: string;
   scaleMode: 'size' | 'scale';
@@ -83,6 +86,9 @@ export interface AppState {
   setBasePlatePadding: (v: number) => void;
   setBasePlateThicknessMm: (v: number) => void;
   setBasePlateTextRelief: (v: number) => void;
+  setEmbossLabels: (v: boolean) => void;
+  setLabelSize: (v: number) => void;
+  setLabelThickness: (v: number) => void;
   setBasePieceName: (v: string) => void;
   setBasePieceColor: (v: string) => void;
   setScaleMode: (v: 'size' | 'scale') => void;
@@ -137,6 +143,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   basePlatePadding: 20,
   basePlateThicknessMm: 5,
   basePlateTextRelief: 1,
+  embossLabels: false,
+  labelSize: 8,
+  labelThickness: 2,
   basePieceName: 'Base do Modelo',
   basePieceColor: '#4b5563',
   scaleMode: 'size',
@@ -249,6 +258,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   setBasePlatePadding: (basePlatePadding) => set({ basePlatePadding }),
   setBasePlateThicknessMm: (basePlateThicknessMm) => set({ basePlateThicknessMm }),
   setBasePlateTextRelief: (basePlateTextRelief) => set({ basePlateTextRelief }),
+  setEmbossLabels: (embossLabels) => set({ embossLabels }),
+  setLabelSize: (labelSize) => set({ labelSize }),
+  setLabelThickness: (labelThickness) => set({ labelThickness }),
   setBasePieceName: (basePieceName) => set({ basePieceName }),
   setBasePieceColor: (basePieceColor) => set({ basePieceColor }),
   setScaleMode: (scaleMode) => set((state) => {
@@ -390,7 +402,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     cropXMax: 100, 
     cropYMin: 0, 
     cropYMax: 100,
-    faults: []
+    faults: [],
+    embossLabels: false,
+    labelSize: 8,
+    labelThickness: 2
   }),
 
   exportProject: () => {

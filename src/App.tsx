@@ -71,6 +71,12 @@ export default function App() {
     setBasePlateThicknessMm,
     basePlateTextRelief,
     setBasePlateTextRelief,
+    embossLabels,
+    setEmbossLabels,
+    labelSize,
+    setLabelSize,
+    labelThickness,
+    setLabelThickness,
     basePieceName,
     setBasePieceName,
     basePieceColor,
@@ -477,7 +483,7 @@ export default function App() {
                           <div className="flex items-center gap-2 ml-6 mt-1">
                             <input
                               type="text"
-                              value={basePieceName}
+                              value={basePieceName || 'Base do Modelo'}
                               onChange={(e) => setBasePieceName(e.target.value)}
                               className="bg-transparent border-b border-zinc-700 hover:border-zinc-600 focus:border-emerald-500 focus:outline-none text-[10px] text-zinc-400 flex-1 min-w-0 px-1 py-0.5 transition-colors"
                               placeholder="Nome na legenda"
@@ -850,7 +856,7 @@ export default function App() {
                     <label className="text-xs text-zinc-400">Título</label>
                     <input
                       type="text"
-                      value={basePlateTitle}
+                      value={basePlateTitle || ''}
                       onChange={(e) => setBasePlateTitle(e.target.value)}
                       className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2"
                       placeholder="Ex: Bacia de Campos"
@@ -860,7 +866,7 @@ export default function App() {
                     <label className="text-xs text-zinc-400">Subtítulo / Escala</label>
                     <input
                       type="text"
-                      value={basePlateSubtitle}
+                      value={basePlateSubtitle || ''}
                       onChange={(e) => setBasePlateSubtitle(e.target.value)}
                       className="bg-zinc-800 border border-zinc-700 text-zinc-300 text-xs rounded focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2"
                       placeholder="Ex: Escala 1:1000"
@@ -869,14 +875,14 @@ export default function App() {
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400 flex justify-between">
                       Margem (Padding)
-                      <span className="text-zinc-500 font-mono">{basePlatePadding}mm</span>
+                      <span className="text-zinc-500 font-mono">{basePlatePadding || 0}mm</span>
                     </label>
                     <input
                       type="range"
                       min="10"
                       max="100"
                       step="5"
-                      value={basePlatePadding}
+                      value={basePlatePadding || 0}
                       onChange={(e) => setBasePlatePadding(Number(e.target.value))}
                       className="w-full accent-emerald-500"
                     />
@@ -884,14 +890,14 @@ export default function App() {
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400 flex justify-between">
                       Espessura do Suporte (mm)
-                      <span className="text-zinc-500 font-mono">{basePlateThicknessMm}mm</span>
+                      <span className="text-zinc-500 font-mono">{basePlateThicknessMm || 0}mm</span>
                     </label>
                     <input
                       type="range"
                       min="1"
                       max="20"
                       step="1"
-                      value={basePlateThicknessMm}
+                      value={basePlateThicknessMm || 0}
                       onChange={(e) => setBasePlateThicknessMm(parseFloat(e.target.value))}
                       className="w-full accent-emerald-500"
                     />
@@ -900,14 +906,14 @@ export default function App() {
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400 flex justify-between">
                       Relevo do Texto (mm)
-                      <span className="text-zinc-500 font-mono">{basePlateTextRelief}mm</span>
+                      <span className="text-zinc-500 font-mono">{basePlateTextRelief || 0}mm</span>
                     </label>
                     <input
                       type="range"
                       min="0.5"
                       max="5"
                       step="0.5"
-                      value={basePlateTextRelief}
+                      value={basePlateTextRelief || 0}
                       onChange={(e) => setBasePlateTextRelief(Number(e.target.value))}
                       className="w-full accent-emerald-500"
                     />
@@ -916,9 +922,60 @@ export default function App() {
                     <label className="text-xs text-zinc-400">Cor da Base</label>
                     <input 
                       type="color" 
-                      value={basePlateColor} 
+                      value={basePlateColor || '#27272a'} 
                       onChange={(e) => setBasePlateColor(e.target.value)}
                       className="w-6 h-6 rounded border border-zinc-700 p-0 cursor-pointer bg-transparent"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-zinc-800 flex flex-col gap-4">
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Etiquetagem de Peças</h3>
+              <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={embossLabels} 
+                  onChange={(e) => setEmbossLabels(e.target.checked)}
+                  className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
+                />
+                Gravar numeração na lateral (Alto relevo)
+              </label>
+              <p className="text-xs text-zinc-500">
+                A numeração começa da peça mais profunda (1) até o topo. Fica na face Sul (Y+).
+              </p>
+              
+              {embossLabels && (
+                <div className="pl-6 flex flex-col gap-2">
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-zinc-400 flex justify-between">
+                      Tamanho do Número (mm)
+                      <span className="text-zinc-500 font-mono">{labelSize || 8}</span>
+                    </label>
+                    <input 
+                      type="range" 
+                      min="2" 
+                      max={Math.max(10, Math.floor(modelSizeMm * 0.15 * Math.max(1, verticalExaggeration)))} 
+                      step="1"
+                      value={labelSize || 8} 
+                      onChange={(e) => setLabelSize(parseFloat(e.target.value))}
+                      className="w-full accent-emerald-500"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-xs text-zinc-400 flex justify-between">
+                      Espessura do Relevo (mm)
+                      <span className="text-zinc-500 font-mono">{labelThickness || 2}</span>
+                    </label>
+                    <input 
+                      type="range" 
+                      min="0.5" 
+                      max="5" 
+                      step="0.5"
+                      value={labelThickness || 2} 
+                      onChange={(e) => setLabelThickness(parseFloat(e.target.value))}
+                      className="w-full accent-emerald-500"
                     />
                   </div>
                 </div>
