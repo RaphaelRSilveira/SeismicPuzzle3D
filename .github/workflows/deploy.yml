@@ -1,0 +1,56 @@
+name: Deploy to GitHub Pages
+
+on:
+  # Dispara o workflow toda vez que houver um push na branch main
+  push:
+    branches:
+      - main
+      # Se a sua branch principal se chamar "master", troque "main" por "master" acima
+
+# Define as permissões necessárias para o GITHUB_TOKEN
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Permite apenas um deploy concorrente
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # Job de Build
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar dependências
+        run: npm install --legacy-peer-deps
+
+      - name: Build do projeto
+        run: npm run build
+
+      - name: Upload do artefato (pasta dist)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist
+
+  # Job de Deploy
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy para o GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
