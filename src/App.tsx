@@ -1,12 +1,12 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { useAppStore } from './store';
+import { useAppStore, Fault } from './store';
 import { parseFile, createCommonGrid } from './parser';
 import { Viewer } from './Viewer';
 import { LITHOLOGY_LABELS } from './textures';
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
 import JSZip from 'jszip';
 import * as THREE from 'three';
-import { Upload, Download, Settings, Trash2, Layers, Info, Eye, Box } from 'lucide-react';
+import { Upload, Download, Settings, Trash2, Layers, Info, Eye, Box, Activity, Save, FolderOpen } from 'lucide-react';
 
 export default function App() {
   const {
@@ -79,8 +79,18 @@ export default function App() {
     setScaleMode,
     metersPerCm,
     setMetersPerCm,
+    faults,
+    faultWidth,
+    showFaults,
+    setFaults,
+    setFaultColor,
+    toggleFaultVisibility,
+    setFaultWidth,
+    setShowFaults,
     generateExample,
-    clear
+    clear,
+    exportProject,
+    importProject
   } = useAppStore();
 
   useEffect(() => {
@@ -89,8 +99,36 @@ export default function App() {
   }, []);
 
   const [files, setFiles] = useState<File[]>([]);
+  const [faultFiles, setFaultFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'surfaces' | 'pieces' | 'faults' | 'settings'>('surfaces');
   const groupRef = useRef<THREE.Group>(null);
+
+  const handleSaveProject = () => {
+    const json = exportProject();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'projeto.sp3d';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        importProject(content);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input
+  };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files?.length) return;
@@ -204,6 +242,62 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleFaultUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files?.length) return;
+    const newFiles = Array.from(e.target.files);
+    setFaultFiles(prev => [...prev, ...newFiles]);
+    
+    const newFaults: Fault[] = [];
+    const defaultColors = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+    
+    for (const file of newFiles) {
+      const text = await file.text();
+      const lines = text.split('\n');
+      let currentStick: THREE.Vector3[] = [];
+      let stickCount = 0;
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!')) {
+          if (currentStick.length >= 2) {
+            stickCount++;
+            newFaults.push({
+              id: `${file.name}-${stickCount}-${Date.now()}`,
+              name: `${file.name.split('.')[0]} ${stickCount}`,
+              points: currentStick,
+              color: defaultColors[(faults.length + newFaults.length) % defaultColors.length],
+              visible: true
+            });
+          }
+          currentStick = [];
+          continue;
+        }
+        
+        const p = trimmed.split(/[\s,;]+/);
+        if (p.length >= 3) {
+          const x = parseFloat(p[0]), y = parseFloat(p[1]), z = parseFloat(p[2]);
+          if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+            currentStick.push(new THREE.Vector3(x, y, z));
+          }
+        }
+      }
+      if (currentStick.length >= 2) {
+        stickCount++;
+        newFaults.push({
+          id: `${file.name}-${stickCount}-${Date.now()}`,
+          name: `${file.name.split('.')[0]} ${stickCount}`,
+          points: currentStick,
+          color: defaultColors[(faults.length + newFaults.length) % defaultColors.length],
+          visible: true
+        });
+      }
+    }
+    
+    if (newFaults.length > 0) {
+      setFaults([...faults, ...newFaults]);
+    }
+  };
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-zinc-950 text-zinc-100 flex flex-col font-sans">
       {/* Header */}
@@ -218,6 +312,24 @@ export default function App() {
           </div>
         </div>
         <div className="flex gap-3">
+          <button
+            onClick={handleSaveProject}
+            disabled={surfaces.length === 0}
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
+            title="Salvar projeto atual"
+          >
+            <Save size={16} />
+            Salvar
+          </button>
+          <label 
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer"
+            title="Carregar projeto salvo"
+          >
+            <FolderOpen size={16} />
+            Carregar
+            <input type="file" accept=".sp3d,.json" className="hidden" onChange={handleLoadProject} />
+          </label>
+          <div className="w-px h-6 bg-zinc-800 mx-1 self-center"></div>
           <button
             onClick={generateExample}
             className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-md text-sm font-medium transition-colors"
@@ -271,7 +383,7 @@ export default function App() {
               <div className="bg-zinc-800/80 rounded-lg p-4 border border-zinc-700/50">
                 <div className="flex justify-between items-center mb-3">
                   <span className="text-sm font-medium text-zinc-300">{surfaces.length} Superfícies</span>
-                  <button onClick={clear} className="text-zinc-500 hover:text-red-400 transition-colors">
+                  <button onClick={() => { setFiles([]); setFaultFiles([]); clear(); }} className="text-zinc-500 hover:text-red-400 transition-colors">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -379,6 +491,82 @@ export default function App() {
                 <p className="text-[10px] text-zinc-500 mt-3 italic">
                   * As peças são os volumes físicos entre duas superfícies.
                 </p>
+              </div>
+            )}
+          </section>
+
+          {/* Faults Input */}
+          <section className="flex flex-col gap-4">
+            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+              <Activity size={16} />
+              Falhas Geológicas
+            </h2>
+            
+            <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-zinc-700 border-dashed rounded-xl cursor-pointer bg-zinc-800/50 hover:bg-zinc-800 hover:border-red-500/50 transition-all">
+              <div className="flex flex-col items-center justify-center pt-3 pb-3">
+                <Activity className="w-6 h-6 mb-2 text-zinc-500" />
+                <p className="text-xs text-zinc-400"><span className="font-semibold text-zinc-300">Upload de Falhas</span></p>
+                <p className="text-[10px] text-zinc-500">X Y Z (Sticks)</p>
+              </div>
+              <input type="file" multiple accept=".txt,.xyz,.dat" className="hidden" onChange={handleFaultUpload} />
+            </label>
+
+            {faults.length > 0 && (
+              <div className="bg-zinc-800/80 rounded-lg p-4 border border-zinc-700/50">
+                <div className="flex justify-between items-center mb-3">
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="checkbox" 
+                      checked={showFaults} 
+                      onChange={(e) => setShowFaults(e.target.checked)}
+                      className="rounded border-zinc-600 bg-zinc-700 text-red-500 focus:ring-red-500/50"
+                    />
+                    <span className="text-sm font-medium text-zinc-300">{faults.length} Falhas</span>
+                  </div>
+                  <button onClick={() => { setFaultFiles([]); setFaults([]); }} className="text-zinc-500 hover:text-red-400 transition-colors">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+                    {faults.map((fault, idx) => (
+                      <div key={fault.id} className="flex items-center justify-between gap-2 p-1.5 rounded bg-zinc-900/40 border border-zinc-700/30 group">
+                        <label className="flex items-center gap-2 text-[11px] text-zinc-300 cursor-pointer hover:text-zinc-100 transition-colors flex-1 min-w-0">
+                          <input 
+                            type="checkbox" 
+                            checked={fault.visible} 
+                            onChange={() => toggleFaultVisibility(idx)}
+                            className="rounded border-zinc-600 bg-zinc-700 text-red-500 focus:ring-red-500/50"
+                          />
+                          <span className="truncate" title={fault.name}>{fault.name}</span>
+                        </label>
+                        <input 
+                          type="color" 
+                          value={fault.color} 
+                          onChange={(e) => setFaultColor(idx, e.target.value)}
+                          className="w-4 h-4 rounded-full overflow-hidden border border-zinc-700 p-0 cursor-pointer bg-transparent hover:scale-110 transition-transform"
+                        />
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-col gap-2 pt-2 border-t border-zinc-800">
+                    <label className="text-[10px] text-zinc-400 uppercase tracking-wider flex justify-between">
+                      Espessura Global
+                      <span className="text-zinc-500">{faultWidth}</span>
+                    </label>
+                    <input 
+                      type="range" 
+                      min="1" 
+                      max="10" 
+                      step="1" 
+                      value={faultWidth} 
+                      onChange={(e) => setFaultWidth(Number(e.target.value))}
+                      className="w-full accent-red-500"
+                    />
+                  </div>
+                </div>
               </div>
             )}
           </section>
@@ -705,7 +893,7 @@ export default function App() {
                       step="1"
                       value={basePlateThicknessMm}
                       onChange={(e) => setBasePlateThicknessMm(parseFloat(e.target.value))}
-                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                      className="w-full accent-emerald-500"
                     />
                   </div>
 
