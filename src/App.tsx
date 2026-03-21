@@ -313,7 +313,10 @@ export default function App() {
             <Layers className="text-zinc-950" size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-zinc-100">SeismicPuzzle3D</h1>
+            <h1 className="text-xl font-bold tracking-tight text-zinc-100 flex items-center gap-2">
+              SeismicPuzzle3D
+              <span className="text-[10px] font-normal bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded border border-zinc-700 uppercase tracking-tighter">v1.0</span>
+            </h1>
             <p className="text-xs text-zinc-400 font-medium">Horizons to 3D Puzzle Converter</p>
           </div>
         </div>
@@ -1044,6 +1047,15 @@ export default function App() {
               >
                 Resetar Rotação
               </button>
+            </div>
+          </section>
+
+          {/* Footer / Author Info */}
+          <section className="mt-auto pt-6 border-t border-zinc-800">
+            <div className="flex flex-col gap-1">
+              <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Desenvolvido por</p>
+              <p className="text-sm text-zinc-300 font-medium">Raphael da Rocha Silveira</p>
+              <p className="text-[10px] text-zinc-600 mt-2">© 2026 Todos os direitos reservados.</p>
             </div>
           </section>
         </aside>
