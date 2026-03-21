@@ -216,7 +216,8 @@ export function createLayerGeometry(
   geometry.setIndex(indices);
   
   // Merge vertices to ensure the mesh is manifold (watertight)
-  geometry = BufferGeometryUtils.mergeVertices(geometry, 0.01);
+  // Use a slightly larger tolerance to handle potential floating point noise in large raw units
+  geometry = BufferGeometryUtils.mergeVertices(geometry, 0.1);
   
   geometry.computeVertexNormals();
 

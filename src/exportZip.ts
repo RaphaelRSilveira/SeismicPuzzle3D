@@ -10,11 +10,13 @@ export async function exportToZIP(geometries: THREE.BufferGeometry[], names: str
     const mesh = new THREE.Mesh(geom);
     mesh.updateMatrixWorld(true);
     
-    const stlData = exporter.parse(mesh, { binary: true });
+    const stlData = exporter.parse(mesh, { binary: true }) as DataView;
     
     // Sanitize name for filename
     let safeName = (names[index] || `Peca_${index + 1}`).replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    zip.file(`${safeName}.stl`, stlData);
+    // Use Uint8Array to safely get the correct slice of the buffer
+    const uint8Array = new Uint8Array(stlData.buffer, stlData.byteOffset, stlData.byteLength);
+    zip.file(`${safeName}.stl`, uint8Array);
   });
 
   const content = await zip.generateAsync({ type: 'blob' });

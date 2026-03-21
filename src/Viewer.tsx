@@ -294,65 +294,56 @@ function PuzzleLayer({
     return geom;
   }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap, textureType, smoothOptions, referenceZ, bottomZFixed, directionUp]);
 
-  const [finalGeometry, setFinalGeometry] = useState<THREE.BufferGeometry>(geometry);
+  const [font, setFont] = useState<any>(null);
+  const [csgGeometry, setCsgGeometry] = useState<THREE.BufferGeometry | null>(null);
 
   useEffect(() => {
-    if (!embossLabels || labelNumber === undefined) {
-      setFinalGeometry(geometry);
+    if (embossLabels) {
+      loadFont().then(setFont).catch(err => console.error("Failed to load font", err));
+    }
+  }, [embossLabels]);
+
+  useEffect(() => {
+    if (!embossLabels || !font || labelNumber === undefined) {
+      setCsgGeometry(null);
       return;
     }
 
     let isMounted = true;
 
-    loadFont().then(font => {
-      if (!isMounted) return;
-
-      if (labelNumber === undefined || isNaN(labelNumber)) {
-        if (isMounted) setFinalGeometry(geometry);
-        return;
-      }
-
+    // We do the CSG in a separate effect to avoid blocking the main thread too much
+    // and to handle the async nature of font loading
+    const runCSG = async () => {
       geometry.computeBoundingBox();
       const gBox = geometry.boundingBox!;
       const gWidth = gBox.max.x - gBox.min.x;
-      const gHeight = gBox.max.y - gBox.min.y;
-
       const southY = gBox.max.y;
       const marginX = 5 / scaleX;
       let marginZ = 2 / scaleZ;
       
-      // Initial X position for thickness calculation
       const initialX = labelX !== undefined ? labelX : gBox.max.x - marginX;
-      
       const szBottomInit = getSurfaceZAt(initialX, southY, bottomSurface, gridWidth, gridHeight);
       const zBottomInit = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szBottomInit, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
-
       const szTopInit = getSurfaceZAt(initialX, southY, topSurface, gridWidth, gridHeight);
       const zTopInit = convertZValue(szTopInit, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
-      
       const isDepthMode = directionUp < 0;
       const thickness = Math.abs(zBottomInit - zTopInit);
 
-      // Calculate text size based on piece thickness and width
-      // Use provided labelSize (in mm) converted to raw units, or fallback to auto
       const requestedTextSize = (labelSize || 2) / (scaleZ || 1);
-      const minTextSize = 2 / (scaleZ || 1); // 2mm minimum
+      const minTextSize = 2 / (scaleZ || 1);
       const localMaxTextSize = Math.max(minTextSize, Math.min(gWidth * 0.15, thickness * 0.6));
       const maxTextSize = globalMaxTextSize !== undefined ? globalMaxTextSize : localMaxTextSize;
-      
-      // Clamp the requested size to the calculated maximum to prevent it from breaking the piece
       let textSize = Math.min(requestedTextSize, maxTextSize);
       if (isNaN(textSize) || !isFinite(textSize)) textSize = 2 / (scaleZ || 1);
       
-      // Depth of emboss: Use provided labelThickness (in mm) converted to raw units, or fallback to 0.2mm
       let rawDepth = (labelThickness || 0.2) / (scaleZ || 1);
       if (isNaN(rawDepth) || !isFinite(rawDepth)) rawDepth = 0.2 / (scaleZ || 1);
 
       const textGeo = new TextGeometry(labelNumber.toString(), {
         font: font,
         size: textSize,
-        depth: rawDepth * 2, // Double depth to ensure deep intersection with the main body
-        curveSegments: 2, // Reduced segments for stability
+        depth: rawDepth * 2,
+        curveSegments: 4,
         bevelEnabled: false
       });
 
@@ -362,36 +353,30 @@ function PuzzleLayer({
       let tHeight = tBox.max.y - tBox.min.y;
       let tDepth = tBox.max.z - tBox.min.z;
 
-      // Center text at origin
       textGeo.translate(-tBox.min.x - tWidth / 2, -tBox.min.y - tHeight / 2, -tBox.min.z - tDepth / 2);
 
       const dummy = new THREE.Object3D();
-      
-      // Clamp posX so the text doesn't stick out of the piece bounds
       const minPosX = gBox.min.x + marginX + tWidth / 2;
       const maxPosX = gBox.max.x - marginX - tWidth / 2;
       const posX = Math.max(minPosX, Math.min(maxPosX, initialX));
       
-      // Sample Z along the text width to find the tightest vertical bounds
       const numSamples = 5;
       let safeTop = isDepthMode ? -Infinity : Infinity;
       let safeBottom = isDepthMode ? Infinity : -Infinity;
 
       for (let i = 0; i <= numSamples; i++) {
         const sampleX = posX - tWidth/2 + (tWidth * i / numSamples);
-        
         const szB = getSurfaceZAt(sampleX, southY, bottomSurface, gridWidth, gridHeight);
         const zB = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szB, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
-        
         const szT = getSurfaceZAt(sampleX, southY, topSurface, gridWidth, gridHeight);
         const zT = convertZValue(szT, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
 
         if (isDepthMode) {
-          safeTop = Math.max(safeTop, zT); // Largest Z (lowest physical point of top surface)
-          safeBottom = Math.min(safeBottom, zB); // Smallest Z (highest physical point of bottom surface)
+          safeTop = Math.max(safeTop, zT);
+          safeBottom = Math.min(safeBottom, zB);
         } else {
-          safeTop = Math.min(safeTop, zT); // Smallest Z (lowest physical point of top surface)
-          safeBottom = Math.max(safeBottom, zB); // Largest Z (highest physical point of bottom surface)
+          safeTop = Math.min(safeTop, zT);
+          safeBottom = Math.max(safeBottom, zB);
         }
       }
 
@@ -404,34 +389,24 @@ function PuzzleLayer({
         marginZ = absoluteThickness * 0.1;
       }
       
-      // If the text is still too tall or too wide for the available space, scale it down dynamically
       let scaleDown = 1;
-      if (tHeight > availableThickness) {
-        scaleDown = Math.min(scaleDown, availableThickness / tHeight);
-      }
-      if (tWidth > availableWidth && availableWidth > 0.1) {
-        scaleDown = Math.min(scaleDown, availableWidth / tWidth);
-      }
+      if (tHeight > availableThickness) scaleDown = Math.min(scaleDown, availableThickness / tHeight);
+      if (tWidth > availableWidth && availableWidth > 0.1) scaleDown = Math.min(scaleDown, availableWidth / tWidth);
       
       if (scaleDown < 1) {
         textGeo.scale(scaleDown, scaleDown, scaleDown);
-        
         textGeo.computeBoundingBox();
         tBox = textGeo.boundingBox!;
         tWidth = tBox.max.x - tBox.min.x;
         tHeight = tBox.max.y - tBox.min.y;
         tDepth = tBox.max.z - tBox.min.z;
-        
-        // Re-center after scaling
         textGeo.translate(-tBox.min.x - tWidth / 2, -tBox.min.y - tHeight / 2, -tBox.min.z - tDepth / 2);
       }
       
-      // Re-clamp posX after potential scaling
       const finalMinPosX = gBox.min.x + marginX + tWidth / 2;
       const finalMaxPosX = gBox.max.x - marginX - tWidth / 2;
       const finalPosX = Math.max(finalMinPosX, Math.min(finalMaxPosX, posX));
 
-      // Now place the text vertically
       let posZ;
       if (isDepthMode) {
         posZ = safeBottom - marginZ - tHeight / 2;
@@ -442,65 +417,47 @@ function PuzzleLayer({
       }
       
       dummy.position.set(finalPosX, southY, posZ);
-      
-      // We want the text to face outwards (+Y)
       dummy.up.set(0, 0, isDepthMode ? -1 : 1);
       dummy.lookAt(finalPosX, southY + 1, posZ);
-      
       dummy.updateMatrix();
       textGeo.applyMatrix4(dummy.matrix);
 
       try {
-        // Ensure geometries are clean and indexed for CSG
-        // Use a small tolerance for merging vertices
-        const cleanGeometry = BufferGeometryUtils.mergeVertices(geometry, 0.01);
-        const cleanTextGeo = BufferGeometryUtils.mergeVertices(textGeo, 0.01);
+        const cleanGeometry = BufferGeometryUtils.mergeVertices(geometry, 0.05);
+        const cleanTextGeo = BufferGeometryUtils.mergeVertices(textGeo, 0.05);
         
-        // Basic validation to prevent three-bvh-csg crashes
-        if (!cleanGeometry.getAttribute('position') || cleanGeometry.getAttribute('position').count === 0) {
-          throw new Error("Base geometry is empty");
-        }
-        if (!cleanTextGeo.getAttribute('position') || cleanTextGeo.getAttribute('position').count === 0) {
-          throw new Error("Text geometry is empty");
-        }
-
         const brush1 = new Brush(cleanGeometry);
         const brush2 = new Brush(cleanTextGeo);
-        
-        // Ensure matrices are up to date
         brush1.updateMatrixWorld(true);
         brush2.updateMatrixWorld(true);
 
         const evaluator = new Evaluator();
-        // Disable groups for better stability in some cases
         evaluator.useGroups = false;
-        
         const result = evaluator.evaluate(brush1, brush2, ADDITION);
         
-        // Merge vertices after CSG to ensure manifold geometry and smooth normals
         let finalGeom = result.geometry;
-        finalGeom = BufferGeometryUtils.mergeVertices(finalGeom, 0.01);
+        finalGeom = BufferGeometryUtils.mergeVertices(finalGeom, 0.05);
         finalGeom.computeVertexNormals();
 
         if (geometry.hasAttribute('color')) {
           finalGeom.setAttribute('color', geometry.getAttribute('color')!);
         }
 
-        setFinalGeometry(finalGeom);
+        if (isMounted) setCsgGeometry(finalGeom);
       } catch (err) {
         console.error("CSG failed for piece label", err);
-        // Fallback to original geometry if CSG fails
-        if (isMounted) setFinalGeometry(geometry);
+        if (isMounted) setCsgGeometry(null);
       }
-    }).catch(err => {
-      console.error("Failed to load font for embossing", err);
-      if (isMounted) setFinalGeometry(geometry);
-    });
+    };
+
+    runCSG();
 
     return () => {
       isMounted = false;
     };
-  }, [geometry, labelNumber, embossLabels, labelSize, labelThickness, scaleZ, scaleX, directionUp, labelX, bottomSurface, topSurface, gridWidth, gridHeight, isTimeScale, averageVelocity, exaggeration, referenceZ, clearanceBottom, clearanceTop, bottomZFixed]);
+  }, [geometry, font, labelNumber, embossLabels, labelSize, labelThickness, scaleZ, scaleX, directionUp, labelX, bottomSurface, topSurface, gridWidth, gridHeight, isTimeScale, averageVelocity, exaggeration, referenceZ, clearanceBottom, clearanceTop, bottomZFixed]);
+
+  const finalGeometry = csgGeometry || geometry;
 
   const faultTraces = useMemo(() => {
     if (!showFaults || !faults || faults.length === 0) return null;
@@ -732,7 +689,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
   // In depth mode (directionUp < 0), "down" is negative Z.
   // In elevation mode (directionUp > 0), "down" is negative Z (relative to top).
   // Actually, we just want it to be below the last surface.
-  const bottomZFixedValue = refDepthConverted + directionUp * (rawBaseThickness);
+  const bottomZFixedValue = refDepthConverted - rawBaseThickness;
   
   // We still need a surface for the "bottom" to define the layer
   const flatBaseSurface = lastSurf.map(p => new THREE.Vector3(p.x, p.y, refRawZ));
@@ -917,14 +874,13 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     
     const bpExplodedOffset = explodedView ? - (modelSizeMm * 0.2) / scaleZ : 0;
     
-    // If directionUp < 0 (depth), "below" is +Z. So centerZ is baseZ + bpThickness / 2
-    // If directionUp > 0 (elevation), "below" is -Z. So centerZ is baseZ - bpThickness / 2
-    const centerZ = baseZ - directionUp * (bpThickness / 2) + bpExplodedOffset;
+    // The base plate should always be below the model base
+    const centerZ = baseZ - (bpThickness / 2) + bpExplodedOffset;
 
     const fontUrl = 'https://unpkg.com/three@0.160.0/examples/fonts/helvetiker_regular.typeface.json';
 
     const textStartX = -bpWidth / 2 + 4 * textScale;
-    const textZ = directionUp > 0 ? bpThickness / 2 : -bpThickness / 2 - textRelief;
+    const textZ = bpThickness / 2;
 
     layers.push(
       <group key="base-plate" position={[bpCenterX, bpCenterY, centerZ]}>
@@ -1011,7 +967,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 function CameraController({ viewTrigger, viewType }: { viewTrigger: number, viewType: string }) {
   const { camera } = useThree();
   const controlsRef = useRef<any>(null);
-  const { modelSizeMm } = useAppStore();
+  const { modelSizeMm, lastUpdate } = useAppStore();
 
   useEffect(() => {
     if (!controlsRef.current) return;
@@ -1035,7 +991,7 @@ function CameraController({ viewTrigger, viewType }: { viewTrigger: number, view
     camera.lookAt(0, 0, 0);
     controlsRef.current.target.set(0, 0, 0);
     controlsRef.current.update();
-  }, [viewTrigger, viewType, camera, modelSizeMm]);
+  }, [viewTrigger, viewType, camera, modelSizeMm, lastUpdate]);
 
   return (
     <OrbitControls 
@@ -1055,21 +1011,64 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
   const [viewType, setViewType] = useState('iso');
   const [showLightingSlider, setShowLightingSlider] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const { lightingIntensity, setLightingIntensity, basePlateColor } = useAppStore();
+  const { lightingIntensity, setLightingIntensity, basePlateColor, surfaces, lastUpdate } = useAppStore();
 
   const handleViewChange = (type: string) => {
     setViewType(type);
     setViewTrigger(prev => prev + 1);
   };
 
-  const handleExportSTL = () => {
+  const handleExportSTL = async () => {
     if (!groupRef.current) return;
     
     // Ensure world matrices are up to date
     groupRef.current.updateWorldMatrix(true, true);
     
+    const geometries: THREE.BufferGeometry[] = [];
+    
+    groupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        const geom = child.geometry.clone();
+        geom.applyMatrix4(child.matrixWorld);
+        geometries.push(geom);
+      }
+    });
+
+    if (geometries.length === 0) return;
+
+    // For a single STL, we should ideally union everything to avoid non-manifold internal faces
+    // but this can be very slow. We'll try to merge vertices at least.
+    let finalGeom: THREE.BufferGeometry;
+    
+    if (geometries.length > 1) {
+      // Try to union them if they are few, otherwise just merge
+      if (geometries.length < 15) {
+        try {
+          const evaluator = new Evaluator();
+          evaluator.useGroups = false;
+          
+          let resultBrush = new Brush(geometries[0]);
+          for (let i = 1; i < geometries.length; i++) {
+            const nextBrush = new Brush(geometries[i]);
+            resultBrush = evaluator.evaluate(resultBrush, nextBrush, ADDITION);
+          }
+          finalGeom = resultBrush.geometry;
+        } catch (err) {
+          console.error("Full STL Union failed, falling back to merge", err);
+          finalGeom = BufferGeometryUtils.mergeGeometries(geometries, false)!;
+        }
+      } else {
+        finalGeom = BufferGeometryUtils.mergeGeometries(geometries, false)!;
+      }
+    } else {
+      finalGeom = geometries[0];
+    }
+
+    finalGeom = BufferGeometryUtils.mergeVertices(finalGeom, 0.1);
+    finalGeom.computeVertexNormals();
+
     const exporter = new STLExporter();
-    const result = exporter.parse(groupRef.current, { binary: true });
+    const result = exporter.parse(new THREE.Mesh(finalGeom), { binary: true });
     const blob = new Blob([result], { type: 'application/octet-stream' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -1094,7 +1093,12 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
           // Clone and apply world matrix to geometry for correct export
           const geom = child.geometry.clone();
           geom.applyMatrix4(child.matrixWorld);
-          geometries.push(geom);
+          
+          // Ensure manifold geometry
+          const mergedGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
+          mergedGeom.computeVertexNormals();
+          
+          geometries.push(mergedGeom);
           names.push(child.name);
           
           if (child.material instanceof THREE.MeshStandardMaterial) {
@@ -1111,12 +1115,33 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
     });
 
     if (baseGeometries.length > 0) {
-      let mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
-      if (mergedBase) {
-        mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.01);
+      // Use CSG ADDITION for the base plate to ensure it's manifold and has no internal faces
+      try {
+        const evaluator = new Evaluator();
+        evaluator.useGroups = false;
+        
+        let resultBrush = new Brush(baseGeometries[0]);
+        for (let i = 1; i < baseGeometries.length; i++) {
+          const nextBrush = new Brush(baseGeometries[i]);
+          resultBrush = evaluator.evaluate(resultBrush, nextBrush, ADDITION);
+        }
+        
+        let mergedBase = resultBrush.geometry;
+        mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
+        mergedBase.computeVertexNormals();
+        
         geometries.push(mergedBase);
         names.push('Base_Plate');
         colors.push(basePlateColor.replace('#', ''));
+      } catch (err) {
+        console.error("Base Plate CSG failed, falling back to merge", err);
+        let mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
+        if (mergedBase) {
+          mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
+          geometries.push(mergedBase);
+          names.push('Base_Plate');
+          colors.push(basePlateColor.replace('#', ''));
+        }
       }
     }
 
@@ -1140,7 +1165,19 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
         if (child.name.startsWith('Layer_')) {
           const geom = child.geometry.clone();
           geom.applyMatrix4(child.matrixWorld);
-          geometries.push(geom);
+          
+          // Ensure manifold geometry
+          let finalGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
+          finalGeom.computeVertexNormals();
+          
+          // Center and ground each piece for individual printing
+          finalGeom.computeBoundingBox();
+          const bbox = finalGeom.boundingBox!;
+          const center = new THREE.Vector3();
+          bbox.getCenter(center);
+          finalGeom.translate(-center.x, -center.y, -bbox.min.z);
+          
+          geometries.push(finalGeom);
           names.push(child.name);
         } else if (child.name.startsWith('Base_')) {
           const geom = child.geometry.clone();
@@ -1151,10 +1188,46 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
     });
 
     if (baseGeometries.length > 0) {
-      const mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
-      if (mergedBase) {
+      // Use CSG ADDITION for the base plate to ensure it's manifold and has no internal faces
+      try {
+        const evaluator = new Evaluator();
+        evaluator.useGroups = false;
+        
+        let resultBrush = new Brush(baseGeometries[0]);
+        for (let i = 1; i < baseGeometries.length; i++) {
+          const nextBrush = new Brush(baseGeometries[i]);
+          resultBrush = evaluator.evaluate(resultBrush, nextBrush, ADDITION);
+        }
+        
+        let mergedBase = resultBrush.geometry;
+        mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
+        mergedBase.computeVertexNormals();
+        
+        // Center and ground the base plate too
+        mergedBase.computeBoundingBox();
+        const bbox = mergedBase.boundingBox!;
+        const center = new THREE.Vector3();
+        bbox.getCenter(center);
+        mergedBase.translate(-center.x, -center.y, -bbox.min.z);
+        
         geometries.push(mergedBase);
         names.push('Base_Plate');
+      } catch (err) {
+        console.error("Base Plate CSG failed in ZIP export, falling back to merge", err);
+        const mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
+        if (mergedBase) {
+          let finalBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
+          finalBase.computeVertexNormals();
+          
+          finalBase.computeBoundingBox();
+          const bbox = finalBase.boundingBox!;
+          const center = new THREE.Vector3();
+          bbox.getCenter(center);
+          finalBase.translate(-center.x, -center.y, -bbox.min.z);
+          
+          geometries.push(finalBase);
+          names.push('Base_Plate');
+        }
       }
     }
 
@@ -1343,7 +1416,7 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
         />
         
         <React.Suspense fallback={null}>
-          <Scene groupRef={groupRef} />
+          <Scene key={`scene-${surfaces.length}-${lastUpdate}`} groupRef={groupRef} />
         </React.Suspense>
         
         <CameraController viewTrigger={viewTrigger} viewType={viewType} />

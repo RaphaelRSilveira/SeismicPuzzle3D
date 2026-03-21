@@ -58,6 +58,7 @@ export interface AppState {
   faults: Fault[];
   faultWidth: number;
   showFaults: boolean;
+  lastUpdate: number;
   
   setSurfaces: (surfaces: THREE.Vector3[][], names: string[], width: number, height: number, isTime: boolean, dataMaxDim: number, dataWidth: number, dataHeight: number) => void;
   setSurfaceName: (index: number, name: string) => void;
@@ -154,6 +155,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   faults: [],
   faultWidth: 2,
   showFaults: true,
+  lastUpdate: Date.now(),
 
   setSurfaces: (surfaces, names, gridWidth, gridHeight, isTimeScale, dataMaxDimension, dataWidth, dataHeight) => {
     const defaultColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
@@ -179,7 +181,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       cropXMin: 0, 
       cropXMax: 100, 
       cropYMin: 0, 
-      cropYMax: 100 
+      cropYMax: 100,
+      faults: [], // Clear faults when new surfaces are loaded
+      showBasePlate: false, // Reset base plate when new data is loaded
+      lastUpdate: Date.now()
     };
 
     if (get().scaleMode === 'scale' && dataWidth > 0) {
@@ -427,7 +432,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         ...restState,
         surfaces: parsedSurfaces,
-        faults: parsedFaults
+        faults: parsedFaults,
+        lastUpdate: Date.now()
       });
     } catch (error) {
       console.error("Failed to import project:", error);
