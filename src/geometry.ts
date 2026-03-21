@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+
 export function createLayerGeometry(
   gridWidth: number,
   gridHeight: number,
@@ -22,11 +24,14 @@ export function createLayerGeometry(
 
   const convertZ = (z: number) => {
     let depth = isTimeScale ? (z * averageVelocity) / 2 : z;
+    let val;
     if (referenceZ !== undefined) {
       const refDepth = isTimeScale ? (referenceZ * averageVelocity) / 2 : referenceZ;
-      return (depth - refDepth) * exaggeration + refDepth;
+      val = (depth - refDepth) * exaggeration + refDepth;
+    } else {
+      val = depth * exaggeration;
     }
-    return depth * exaggeration;
+    return val * directionUp;
   };
 
   function getTactileDisplacement(x: number, y: number, z: number, type?: string): THREE.Vector3 {
@@ -162,8 +167,8 @@ export function createLayerGeometry(
         const curX = i === 0 ? x1 : x2;
         const curY = i === 0 ? y1 : y2;
         
-        const rawZTop = convertZ(pTop.z) - clearanceTop;
-        const rawZBottom = bottomZFixed !== undefined ? bottomZFixed : convertZ(pBottom.z) + clearanceBottom;
+        const rawZTop = convertZ(pTop.z) - sign * clearanceTop;
+        const rawZBottom = bottomZFixed !== undefined ? bottomZFixed : convertZ(pBottom.z) + sign * clearanceBottom;
         
         const rawZ = rawZTop * (1 - t) + rawZBottom * t;
         const rawX = pTop.x * (1 - t) + pBottom.x * t;
@@ -179,8 +184,10 @@ export function createLayerGeometry(
     for (let s = 0; s < wallSubdivisions; s++) {
       const r0 = wallStartIdx + s * 2;
       const r1 = wallStartIdx + (s + 1) * 2;
-      indices.push(r0, r0 + 1, r1 + 1);
-      indices.push(r0, r1 + 1, r1);
+      // CCW winding: bottom-left -> bottom-right -> top-right -> top-left
+      // r1 is bottom (t=s+1), r0 is top (t=s)
+      indices.push(r1, r1 + 1, r0 + 1);
+      indices.push(r1, r0 + 1, r0);
     }
   };
 
@@ -203,10 +210,14 @@ export function createLayerGeometry(
     addWall(finalPointsTop[offsetCol + gridWidth * y], finalPointsTop[offsetCol + gridWidth * (y + 1)], finalPointsBottom[offsetCol + gridWidth * y], finalPointsBottom[offsetCol + gridWidth * (y + 1)], gridWidth-1, y, gridWidth-1, y+1);
   }
 
-  const geometry = new THREE.BufferGeometry();
+  let geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
+  
+  // Merge vertices to ensure the mesh is manifold (watertight)
+  geometry = BufferGeometryUtils.mergeVertices(geometry, 0.01);
+  
   geometry.computeVertexNormals();
 
   return geometry;

@@ -3,7 +3,7 @@ import { useAppStore, Fault } from './store';
 import { parseFile, createCommonGrid } from './parser';
 import { Viewer } from './Viewer';
 import { LITHOLOGY_LABELS } from './textures';
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
+import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import JSZip from 'jszip';
 import * as THREE from 'three';
 import { Upload, Download, Settings, Trash2, Layers, Info, Eye, Box, Activity, Save, FolderOpen } from 'lucide-react';
@@ -378,9 +378,9 @@ export default function App() {
               <div className="flex flex-col items-center justify-center pt-5 pb-6">
                 <Upload className="w-8 h-8 mb-3 text-zinc-500" />
                 <p className="mb-2 text-sm text-zinc-400"><span className="font-semibold text-zinc-300">Clique para upload</span> ou arraste</p>
-                <p className="text-xs text-zinc-500">.hor, .txt, .xyz, .dat</p>
+                <p className="text-xs text-zinc-500">.grs, .hor, .txt, .xyz, .dat</p>
               </div>
-              <input type="file" multiple accept=".hor,.txt,.xyz,.dat" className="hidden" onChange={handleFileUpload} />
+              <input type="file" multiple accept=".grs,.hor,.txt,.xyz,.dat" className="hidden" onChange={handleFileUpload} />
             </label>
 
             {loading && <p className="text-sm text-emerald-400 animate-pulse">Processando arquivos...</p>}
@@ -512,9 +512,9 @@ export default function App() {
               <div className="flex flex-col items-center justify-center pt-3 pb-3">
                 <Activity className="w-6 h-6 mb-2 text-zinc-500" />
                 <p className="text-xs text-zinc-400"><span className="font-semibold text-zinc-300">Upload de Falhas</span></p>
-                <p className="text-[10px] text-zinc-500">X Y Z (Sticks)</p>
+                <p className="text-[10px] text-zinc-500">.grs, .txt, .xyz, .dat</p>
               </div>
-              <input type="file" multiple accept=".txt,.xyz,.dat" className="hidden" onChange={handleFaultUpload} />
+              <input type="file" multiple accept=".grs,.txt,.xyz,.dat" className="hidden" onChange={handleFaultUpload} />
             </label>
 
             {faults.length > 0 && (
@@ -824,34 +824,39 @@ export default function App() {
             </div>
             
             <div className="pt-4 border-t border-zinc-800 flex flex-col gap-4">
-              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Suporte de Exposição</h3>
-              <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer">
+              <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">Base do Modelo</h3>
+              
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-zinc-400 flex justify-between">
+                  Espessura da Base Plana (mm)
+                  <span className="text-zinc-500 font-mono">{baseThicknessMm}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.2"
+                  max="50"
+                  step="0.1"
+                  value={baseThicknessMm}
+                  onChange={(e) => setBaseThicknessMm(Number(e.target.value))}
+                  className="w-full accent-emerald-500"
+                />
+                <p className="text-[10px] text-zinc-500 italic">
+                  * A base plana é obrigatória para garantir a estabilidade do modelo.
+                </p>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm text-zinc-300 cursor-pointer pt-2 border-t border-zinc-800/50">
                 <input 
                   type="checkbox" 
                   checked={showBasePlate} 
                   onChange={(e) => setShowBasePlate(e.target.checked)}
                   className="rounded border-zinc-600 bg-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
                 />
-                Adicionar Suporte com Legenda e Base Plana
+                Adicionar Suporte de Exposição (Legenda)
               </label>
               
               {showBasePlate && (
                 <div className="flex flex-col gap-4 pl-6">
-                  <div className="flex flex-col gap-2">
-                    <label className="text-xs text-zinc-400 flex justify-between">
-                      Espessura da Base Plana (mm)
-                      <span className="text-zinc-500 font-mono">{baseThicknessMm}</span>
-                    </label>
-                    <input
-                      type="range"
-                      min="1"
-                      max="50"
-                      step="1"
-                      value={baseThicknessMm}
-                      onChange={(e) => setBaseThicknessMm(Number(e.target.value))}
-                      className="w-full accent-emerald-500"
-                    />
-                  </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400">Título</label>
                     <input
@@ -919,7 +924,7 @@ export default function App() {
                     />
                   </div>
                   <div className="flex items-center justify-between">
-                    <label className="text-xs text-zinc-400">Cor da Base</label>
+                    <label className="text-xs text-zinc-400">Cor do Suporte</label>
                     <input 
                       type="color" 
                       value={basePlateColor || '#27272a'} 
@@ -951,14 +956,14 @@ export default function App() {
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400 flex justify-between">
                       Tamanho do Número (mm)
-                      <span className="text-zinc-500 font-mono">{labelSize || 8}</span>
+                      <span className="text-zinc-500 font-mono">{labelSize}</span>
                     </label>
                     <input 
                       type="range" 
                       min="2" 
                       max={Math.max(10, Math.floor(modelSizeMm * 0.15 * Math.max(1, verticalExaggeration)))} 
                       step="1"
-                      value={labelSize || 8} 
+                      value={labelSize} 
                       onChange={(e) => setLabelSize(parseFloat(e.target.value))}
                       className="w-full accent-emerald-500"
                     />
@@ -966,14 +971,14 @@ export default function App() {
                   <div className="flex flex-col gap-2">
                     <label className="text-xs text-zinc-400 flex justify-between">
                       Espessura do Relevo (mm)
-                      <span className="text-zinc-500 font-mono">{labelThickness || 2}</span>
+                      <span className="text-zinc-500 font-mono">{labelThickness}</span>
                     </label>
                     <input 
                       type="range" 
-                      min="0.5" 
+                      min="0.2" 
                       max="5" 
-                      step="0.5"
-                      value={labelThickness || 2} 
+                      step="0.1"
+                      value={labelThickness} 
                       onChange={(e) => setLabelThickness(parseFloat(e.target.value))}
                       className="w-full accent-emerald-500"
                     />

@@ -1,4 +1,4 @@
-import { FontLoader, Font } from 'three/examples/jsm/loaders/FontLoader.js';
+import { FontLoader, Font } from 'three/addons/loaders/FontLoader.js';
 
 let cachedFont: Font | null = null;
 let fontPromise: Promise<Font> | null = null;

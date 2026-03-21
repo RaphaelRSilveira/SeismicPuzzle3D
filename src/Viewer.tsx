@@ -1,26 +1,66 @@
-import React, { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Center, Environment, Text3D } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAppStore, Fault } from './store';
 import { createLayerGeometry } from './geometry';
 import { LITHOLOGY_TEXTURES } from './textures';
-import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
-import { Box, Square, Download, FileCode, Sun, Activity, Archive } from 'lucide-react';
+import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+import { Box, Square, Download, FileCode, Sun, Activity, Archive, HelpCircle, X, Info, AlertTriangle } from 'lucide-react';
 import { exportTo3MF } from './export3mf';
 import { exportToZIP } from './exportZip';
-import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { Evaluator, Brush, SUBTRACTION, ADDITION } from 'three-bvh-csg';
 import { loadFont } from './fontLoader';
 
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(_: Error) {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Viewer Error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900 text-zinc-400 p-8 text-center rounded-xl border border-zinc-800">
+          <AlertTriangle size={48} className="text-amber-500 mb-4" />
+          <h3 className="text-lg font-bold text-zinc-200 mb-2">Erro no Visualizador 3D</h3>
+          <p className="text-sm max-w-md">
+            Ocorreu um erro ao renderizar o modelo 3D. Isso pode ser devido a dados corrompidos ou um problema de compatibilidade.
+          </p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-6 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-sm transition-colors"
+          >
+            Recarregar Página
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // Helper for Z conversion (matching geometry.ts)
-const convertZValue = (z: number, isTimeScale: boolean, averageVelocity: number, exaggeration: number, referenceZ?: number) => {
+const convertZValue = (z: number, isTimeScale: boolean, averageVelocity: number, exaggeration: number, directionUp: number, referenceZ?: number) => {
   let depth = isTimeScale ? (z * averageVelocity) / 2 : z;
+  let val;
   if (referenceZ !== undefined) {
     const refDepth = isTimeScale ? (referenceZ * averageVelocity) / 2 : referenceZ;
-    return (depth - refDepth) * exaggeration + refDepth;
+    val = (depth - refDepth) * exaggeration + refDepth;
+  } else {
+    val = depth * exaggeration;
   }
-  return depth * exaggeration;
+  return val * directionUp;
 };
 
 // Helper for surface interpolation
@@ -162,6 +202,7 @@ function PuzzleLayer({
   faults,
   faultWidth,
   showFaults,
+  embossLabels,
   labelNumber,
   labelSize,
   labelThickness,
@@ -191,6 +232,7 @@ function PuzzleLayer({
   faults: Fault[];
   faultWidth: number;
   showFaults: boolean;
+  embossLabels: boolean;
   labelNumber?: number;
   labelSize?: number;
   labelThickness?: number;
@@ -255,7 +297,7 @@ function PuzzleLayer({
   const [finalGeometry, setFinalGeometry] = useState<THREE.BufferGeometry>(geometry);
 
   useEffect(() => {
-    if (labelNumber === undefined) {
+    if (!embossLabels || labelNumber === undefined) {
       setFinalGeometry(geometry);
       return;
     }
@@ -264,6 +306,11 @@ function PuzzleLayer({
 
     loadFont().then(font => {
       if (!isMounted) return;
+
+      if (labelNumber === undefined || isNaN(labelNumber)) {
+        if (isMounted) setFinalGeometry(geometry);
+        return;
+      }
 
       geometry.computeBoundingBox();
       const gBox = geometry.boundingBox!;
@@ -278,32 +325,34 @@ function PuzzleLayer({
       const initialX = labelX !== undefined ? labelX : gBox.max.x - marginX;
       
       const szBottomInit = getSurfaceZAt(initialX, southY, bottomSurface, gridWidth, gridHeight);
-      const zBottomInit = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szBottomInit, isTimeScale, averageVelocity, exaggeration, referenceZ) + clearanceBottom;
+      const zBottomInit = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szBottomInit, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
 
       const szTopInit = getSurfaceZAt(initialX, southY, topSurface, gridWidth, gridHeight);
-      const zTopInit = convertZValue(szTopInit, isTimeScale, averageVelocity, exaggeration, referenceZ) - clearanceTop;
+      const zTopInit = convertZValue(szTopInit, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
       
       const isDepthMode = directionUp < 0;
       const thickness = Math.abs(zBottomInit - zTopInit);
 
       // Calculate text size based on piece thickness and width
       // Use provided labelSize (in mm) converted to raw units, or fallback to auto
-      const requestedTextSize = (labelSize || 8) / scaleZ;
-      const minTextSize = 3 / scaleZ; // 3mm minimum
+      const requestedTextSize = (labelSize || 2) / (scaleZ || 1);
+      const minTextSize = 2 / (scaleZ || 1); // 2mm minimum
       const localMaxTextSize = Math.max(minTextSize, Math.min(gWidth * 0.15, thickness * 0.6));
       const maxTextSize = globalMaxTextSize !== undefined ? globalMaxTextSize : localMaxTextSize;
       
       // Clamp the requested size to the calculated maximum to prevent it from breaking the piece
-      const textSize = Math.min(requestedTextSize, maxTextSize);
+      let textSize = Math.min(requestedTextSize, maxTextSize);
+      if (isNaN(textSize) || !isFinite(textSize)) textSize = 2 / (scaleZ || 1);
       
-      // Depth of emboss: Use provided labelThickness (in mm) converted to raw units, or fallback to 2mm
-      const rawDepth = (labelThickness || 2) / scaleZ;
+      // Depth of emboss: Use provided labelThickness (in mm) converted to raw units, or fallback to 0.2mm
+      let rawDepth = (labelThickness || 0.2) / (scaleZ || 1);
+      if (isNaN(rawDepth) || !isFinite(rawDepth)) rawDepth = 0.2 / (scaleZ || 1);
 
       const textGeo = new TextGeometry(labelNumber.toString(), {
         font: font,
         size: textSize,
         depth: rawDepth * 2, // Double depth to ensure deep intersection with the main body
-        curveSegments: 4,
+        curveSegments: 2, // Reduced segments for stability
         bevelEnabled: false
       });
 
@@ -332,10 +381,10 @@ function PuzzleLayer({
         const sampleX = posX - tWidth/2 + (tWidth * i / numSamples);
         
         const szB = getSurfaceZAt(sampleX, southY, bottomSurface, gridWidth, gridHeight);
-        const zB = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szB, isTimeScale, averageVelocity, exaggeration, referenceZ) + clearanceBottom;
+        const zB = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szB, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
         
         const szT = getSurfaceZAt(sampleX, southY, topSurface, gridWidth, gridHeight);
-        const zT = convertZValue(szT, isTimeScale, averageVelocity, exaggeration, referenceZ) - clearanceTop;
+        const zT = convertZValue(szT, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
 
         if (isDepthMode) {
           safeTop = Math.max(safeTop, zT); // Largest Z (lowest physical point of top surface)
@@ -401,19 +450,48 @@ function PuzzleLayer({
       dummy.updateMatrix();
       textGeo.applyMatrix4(dummy.matrix);
 
-      const brush1 = new Brush(geometry);
-      const brush2 = new Brush(textGeo);
-      brush1.updateMatrixWorld();
-      brush2.updateMatrixWorld();
+      try {
+        // Ensure geometries are clean and indexed for CSG
+        // Use a small tolerance for merging vertices
+        const cleanGeometry = BufferGeometryUtils.mergeVertices(geometry, 0.01);
+        const cleanTextGeo = BufferGeometryUtils.mergeVertices(textGeo, 0.01);
+        
+        // Basic validation to prevent three-bvh-csg crashes
+        if (!cleanGeometry.getAttribute('position') || cleanGeometry.getAttribute('position').count === 0) {
+          throw new Error("Base geometry is empty");
+        }
+        if (!cleanTextGeo.getAttribute('position') || cleanTextGeo.getAttribute('position').count === 0) {
+          throw new Error("Text geometry is empty");
+        }
 
-      const evaluator = new Evaluator();
-      const result = evaluator.evaluate(brush1, brush2, ADDITION);
+        const brush1 = new Brush(cleanGeometry);
+        const brush2 = new Brush(cleanTextGeo);
+        
+        // Ensure matrices are up to date
+        brush1.updateMatrixWorld(true);
+        brush2.updateMatrixWorld(true);
 
-      if (geometry.hasAttribute('color')) {
-        result.geometry.setAttribute('color', geometry.getAttribute('color')!);
+        const evaluator = new Evaluator();
+        // Disable groups for better stability in some cases
+        evaluator.useGroups = false;
+        
+        const result = evaluator.evaluate(brush1, brush2, ADDITION);
+        
+        // Merge vertices after CSG to ensure manifold geometry and smooth normals
+        let finalGeom = result.geometry;
+        finalGeom = BufferGeometryUtils.mergeVertices(finalGeom, 0.01);
+        finalGeom.computeVertexNormals();
+
+        if (geometry.hasAttribute('color')) {
+          finalGeom.setAttribute('color', geometry.getAttribute('color')!);
+        }
+
+        setFinalGeometry(finalGeom);
+      } catch (err) {
+        console.error("CSG failed for piece label", err);
+        // Fallback to original geometry if CSG fails
+        if (isMounted) setFinalGeometry(geometry);
       }
-
-      setFinalGeometry(result.geometry);
     }).catch(err => {
       console.error("Failed to load font for embossing", err);
       if (isMounted) setFinalGeometry(geometry);
@@ -422,7 +500,7 @@ function PuzzleLayer({
     return () => {
       isMounted = false;
     };
-  }, [geometry, labelNumber, scaleZ, bottomSurface, topSurface, gridWidth, gridHeight, isTimeScale, averageVelocity, exaggeration, referenceZ, clearanceBottom, clearanceTop, bottomZFixed]);
+  }, [geometry, labelNumber, embossLabels, labelSize, labelThickness, scaleZ, scaleX, directionUp, labelX, bottomSurface, topSurface, gridWidth, gridHeight, isTimeScale, averageVelocity, exaggeration, referenceZ, clearanceBottom, clearanceTop, bottomZFixed]);
 
   const faultTraces = useMemo(() => {
     if (!showFaults || !faults || faults.length === 0) return null;
@@ -494,7 +572,7 @@ function PuzzleLayer({
         const topPoints: THREE.Vector3[] = [];
         segment.forEach(p => {
           const sz = getSurfaceZAt(p.x, p.y, topSurface, gridWidth, gridHeight);
-          const z = convertZValue(sz, isTimeScale, averageVelocity, exaggeration, referenceZ) - clearanceTop;
+          const z = convertZValue(sz, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
           topPoints.push(new THREE.Vector3(p.x, p.y, z + 0.1));
         });
 
@@ -514,7 +592,7 @@ function PuzzleLayer({
         const bottomPoints: THREE.Vector3[] = [];
         segment.forEach(p => {
           const sz = getSurfaceZAt(p.x, p.y, bottomSurface, gridWidth, gridHeight);
-          const z = bottomZFixed !== undefined ? bottomZFixed : convertZValue(sz, isTimeScale, averageVelocity, exaggeration, referenceZ) + clearanceBottom;
+          const z = bottomZFixed !== undefined ? bottomZFixed : convertZValue(sz, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
           bottomPoints.push(new THREE.Vector3(p.x, p.y, z - 0.1));
         });
 
@@ -534,8 +612,8 @@ function PuzzleLayer({
         const szTop = getSurfaceZAt(bp.x, bp.y, topSurface, gridWidth, gridHeight);
         const szBottom = getSurfaceZAt(bp.x, bp.y, bottomSurface, gridWidth, gridHeight);
         
-        const zTop = convertZValue(szTop, isTimeScale, averageVelocity, exaggeration, referenceZ) - clearanceTop;
-        const zBottom = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szBottom, isTimeScale, averageVelocity, exaggeration, referenceZ) + clearanceBottom;
+        const zTop = convertZValue(szTop, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
+        const zBottom = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szBottom, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
         
         // We no longer check if the fault's Z is within this specific layer's Z range.
         // If a fault stick intersects the X/Y boundary of the model, we assume it's a 
@@ -565,7 +643,7 @@ function PuzzleLayer({
     });
 
     return traces;
-  }, [faults, faultWidth, showFaults, topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, referenceZ, bottomZFixed]);
+  }, [faults, faultWidth, showFaults, topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, directionUp, referenceZ, bottomZFixed]);
 
   return (
     <group>
@@ -643,24 +721,22 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
   
   const exaggerationRefZ = refRawZ;
   const refDepth = isTimeScale ? (exaggerationRefZ * averageVelocity) / 2 : exaggerationRefZ;
+  const refDepthConverted = refDepth * directionUp;
 
   // Prepare all surfaces including the flat base
   const allSurfaces = [...croppedSurfaces];
-  let bottomZFixedValue: number | undefined = undefined;
-
-  if (showBasePlate) {
-    // We want the bottom plane to be at a fixed distance from the reference point
-    // regardless of exaggeration.
-    // The reference point's exaggerated position is refDepth.
-    // In depth mode (directionUp < 0), "down" is +Z.
-    // In elevation mode (directionUp > 0), "down" is -Z.
-    // So bottomZFixed = refDepth - directionUp * rawBaseThickness
-    bottomZFixedValue = refDepth - directionUp * (rawBaseThickness);
-    
-    // We still need a surface for the "bottom" to define the layer
-    const flatBaseSurface = lastSurf.map(p => new THREE.Vector3(p.x, p.y, refRawZ));
-    allSurfaces.push(flatBaseSurface);
-  }
+  
+  // We want the bottom plane to be at a fixed distance from the reference point
+  // regardless of exaggeration.
+  // The reference point's exaggerated position is refDepthConverted.
+  // In depth mode (directionUp < 0), "down" is negative Z.
+  // In elevation mode (directionUp > 0), "down" is negative Z (relative to top).
+  // Actually, we just want it to be below the last surface.
+  const bottomZFixedValue = refDepthConverted + directionUp * (rawBaseThickness);
+  
+  // We still need a surface for the "bottom" to define the layer
+  const flatBaseSurface = lastSurf.map(p => new THREE.Vector3(p.x, p.y, refRawZ));
+  allSurfaces.push(flatBaseSurface);
 
   const layers = [];
   const numLayers = allSurfaces.length - 1;
@@ -690,14 +766,14 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
         const x = minX + (maxX - minX) * (0.15 + 0.7 * t);
         
         const szT = getSurfaceZAt(x, maxY, topSurface, croppedGridWidth, croppedGridHeight);
-        const zT = convertZValue(szT, isTimeScale, averageVelocity, verticalExaggeration, exaggerationRefZ) - (i === 0 ? 0 : rawClearance / 2);
+        const zT = convertZValue(szT, isTimeScale, averageVelocity, verticalExaggeration, directionUp, exaggerationRefZ) - (i === 0 ? 0 : rawClearance / 2);
         
         let zB;
-        if (showBasePlate && i === numLayers - 1) {
-          zB = bottomZFixedValue!;
+        if (i === numLayers - 1) {
+          zB = bottomZFixedValue;
         } else {
           const szB = getSurfaceZAt(x, maxY, bottomSurface, croppedGridWidth, croppedGridHeight);
-          zB = convertZValue(szB, isTimeScale, averageVelocity, verticalExaggeration, exaggerationRefZ) + (i === numLayers - 1 ? 0 : rawClearance / 2);
+          zB = convertZValue(szB, isTimeScale, averageVelocity, verticalExaggeration, directionUp, exaggerationRefZ) + (i === numLayers - 1 ? 0 : rawClearance / 2);
         }
         
         const thickness = Math.abs(zB - zT);
@@ -719,25 +795,20 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
   for (let i = 0; i < numLayers; i++) {
     // A layer exists between allSurfaces[i] and allSurfaces[i+1]
     // Layer i is visible if visibleLayers[i] is true
-    // If it's the artificial base layer, it's always visible for now or we can add a toggle
     if (i < visibleLayers.length && !visibleLayers[i]) continue;
-    
-    // Also, a layer is only visible if its bounding surfaces are visible? 
-    // Actually, let's stick to visibleLayers as the primary control for "pieces"
     
     const topSurface = allSurfaces[i];
     const bottomSurface = allSurfaces[i+1];
-    const topSurfaceAbove = i > 0 ? allSurfaces[i-1] : undefined;
     
     // Top layer has no top clearance, bottom layer has no bottom clearance
     const clearanceTop = i === 0 ? 0 : rawClearance / 2;
     const clearanceBottom = i === numLayers - 1 ? 0 : rawClearance / 2;
 
-    const isFlatBaseLayer = showBasePlate && i === numLayers - 1;
+    const isFlatBaseLayer = i === numLayers - 1;
     
     const layerColor = layerColors[i] || '#3b82f6';
     const textureType = layerTextures[i] || 'none';
-    const layerName = isFlatBaseLayer ? basePieceName : `Peca ${i + 1}`;
+    const layerName = isFlatBaseLayer ? `Layer_Base` : `Layer_${i + 1}`;
     
     let labelNumber: number | undefined = undefined;
     let labelX: number | undefined = undefined;
@@ -784,6 +855,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           faults={faults}
           faultWidth={faultWidth}
           showFaults={showFaults}
+          embossLabels={embossLabels}
         />
       </group>
     );
@@ -899,7 +971,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
         <group position={[textStartX, bpHeight / 2 - 8 * textScale, textZ]}>
           {visibleLayers.map((visible, idx) => {
             if (!visible) return null;
-            const isBaseLayer = showBasePlate && idx === visibleLayers.length - 1;
+            const isBaseLayer = idx === visibleLayers.length - 1;
             const name = isBaseLayer ? basePieceName : (surfaceNames[idx] || `Peça ${idx + 1}`);
             const color = layerColors[idx] || '#ffffff';
             
@@ -939,13 +1011,15 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
 function CameraController({ viewTrigger, viewType }: { viewTrigger: number, viewType: string }) {
   const { camera } = useThree();
   const controlsRef = useRef<any>(null);
+  const { modelSizeMm } = useAppStore();
 
   useEffect(() => {
     if (!controlsRef.current) return;
     
     // d is the distance from target (0,0,0)
-    // For a 100mm model, 300-400mm is a good distance for initial zoom.
-    const d = 350;
+    // We want the distance to be proportional to the model size.
+    // A distance of 1.8x to 2x the model size is usually good for a full view.
+    const d = modelSizeMm * 1.8;
     
     // With camera.up = [0, 0, 1], Z is the vertical axis.
     if (viewType === 'top') {
@@ -958,18 +1032,30 @@ function CameraController({ viewTrigger, viewType }: { viewTrigger: number, view
       camera.position.set(d * 0.7, -d * 0.7, d * 0.7);
     }
 
+    camera.lookAt(0, 0, 0);
     controlsRef.current.target.set(0, 0, 0);
     controlsRef.current.update();
-  }, [viewTrigger, viewType, camera]);
+  }, [viewTrigger, viewType, camera, modelSizeMm]);
 
-  return <OrbitControls ref={controlsRef} makeDefault enableDamping dampingFactor={0.1} rotateSpeed={0.8} />;
+  return (
+    <OrbitControls 
+      ref={controlsRef} 
+      makeDefault 
+      enableDamping 
+      dampingFactor={0.1} 
+      rotateSpeed={0.8}
+      minDistance={modelSizeMm * 0.2}
+      maxDistance={modelSizeMm * 20}
+    />
+  );
 }
 
-export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
+const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) => {
   const [viewTrigger, setViewTrigger] = useState(0);
   const [viewType, setViewType] = useState('iso');
   const [showLightingSlider, setShowLightingSlider] = useState(false);
-  const { lightingIntensity, setLightingIntensity } = useAppStore();
+  const [showHelp, setShowHelp] = useState(false);
+  const { lightingIntensity, setLightingIntensity, basePlateColor } = useAppStore();
 
   const handleViewChange = (type: string) => {
     setViewType(type);
@@ -978,49 +1064,102 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
 
   const handleExportSTL = () => {
     if (!groupRef.current) return;
+    
+    // Ensure world matrices are up to date
+    groupRef.current.updateWorldMatrix(true, true);
+    
     const exporter = new STLExporter();
     const result = exporter.parse(groupRef.current, { binary: true });
     const blob = new Blob([result], { type: 'application/octet-stream' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = 'seismic_puzzle.stl';
+    link.download = 'seismic_puzzle_full.stl';
     link.click();
   };
 
   const handleExport3MF = async () => {
     if (!groupRef.current) return;
+    
+    // Ensure world matrices are up to date
+    groupRef.current.updateWorldMatrix(true, true);
+    
     const geometries: THREE.BufferGeometry[] = [];
     const names: string[] = [];
+    const colors: string[] = [];
+    const baseGeometries: THREE.BufferGeometry[] = [];
     
     groupRef.current.traverse((child) => {
       if (child instanceof THREE.Mesh && child.geometry) {
-        // Clone and apply world matrix to geometry for correct export
-        const geom = child.geometry.clone();
-        geom.applyMatrix4(child.matrixWorld);
-        geometries.push(geom);
-        names.push(child.name || 'Layer');
+        if (child.name.startsWith('Layer_')) {
+          // Clone and apply world matrix to geometry for correct export
+          const geom = child.geometry.clone();
+          geom.applyMatrix4(child.matrixWorld);
+          geometries.push(geom);
+          names.push(child.name);
+          
+          if (child.material instanceof THREE.MeshStandardMaterial) {
+            colors.push(child.material.color.getHexString());
+          } else {
+            colors.push('ffffff');
+          }
+        } else if (child.name.startsWith('Base_')) {
+          const geom = child.geometry.clone();
+          geom.applyMatrix4(child.matrixWorld);
+          baseGeometries.push(geom);
+        }
       }
     });
 
+    if (baseGeometries.length > 0) {
+      let mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
+      if (mergedBase) {
+        mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.01);
+        geometries.push(mergedBase);
+        names.push('Base_Plate');
+        colors.push(basePlateColor.replace('#', ''));
+      }
+    }
+
     if (geometries.length > 0) {
-      await exportTo3MF(geometries, names);
+      await exportTo3MF(geometries, names, colors);
     }
   };
 
   const handleExportZIP = async () => {
     if (!groupRef.current) return;
-    const meshes: THREE.Mesh[] = [];
+    
+    // Ensure world matrices are up to date
+    groupRef.current.updateWorldMatrix(true, true);
+    
+    const geometries: THREE.BufferGeometry[] = [];
     const names: string[] = [];
+    const baseGeometries: THREE.BufferGeometry[] = [];
     
     groupRef.current.traverse((child) => {
       if (child instanceof THREE.Mesh && child.geometry) {
-        meshes.push(child);
-        names.push(child.name || 'Layer');
+        if (child.name.startsWith('Layer_')) {
+          const geom = child.geometry.clone();
+          geom.applyMatrix4(child.matrixWorld);
+          geometries.push(geom);
+          names.push(child.name);
+        } else if (child.name.startsWith('Base_')) {
+          const geom = child.geometry.clone();
+          geom.applyMatrix4(child.matrixWorld);
+          baseGeometries.push(geom);
+        }
       }
     });
 
-    if (meshes.length > 0) {
-      await exportToZIP(meshes, names);
+    if (baseGeometries.length > 0) {
+      const mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
+      if (mergedBase) {
+        geometries.push(mergedBase);
+        names.push('Base_Plate');
+      }
+    }
+
+    if (geometries.length > 0) {
+      await exportToZIP(geometries, names);
     }
   };
 
@@ -1042,13 +1181,13 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
         
         <div className="h-px bg-zinc-700 my-1 mx-2" />
         
-        <button onClick={handleExportSTL} className="p-2 hover:bg-emerald-900/40 rounded text-emerald-500 hover:text-emerald-400 transition-colors" title="Exportar Cena (STL Único)">
+        <button onClick={handleExportSTL} className="p-2 hover:bg-emerald-900/40 rounded text-emerald-500 hover:text-emerald-400 transition-colors" title="Exportar Cena (STL Único - Tudo em um objeto. Não recomendado para separar peças)">
           <Download size={20} />
         </button>
-        <button onClick={handleExportZIP} className="p-2 hover:bg-purple-900/40 rounded text-purple-500 hover:text-purple-400 transition-colors" title="Exportar Peças Separadas (ZIP com STLs)">
+        <button onClick={handleExportZIP} className="p-2 hover:bg-purple-900/40 rounded text-purple-500 hover:text-purple-400 transition-colors" title="Exportar Peças Separadas (ZIP com STLs Individuais)">
           <Archive size={20} />
         </button>
-        <button onClick={handleExport3MF} className="p-2 hover:bg-blue-900/40 rounded text-blue-500 hover:text-blue-400 transition-colors" title="Exportar 3MF (Bambu Studio)">
+        <button onClick={handleExport3MF} className="p-2 hover:bg-blue-900/40 rounded text-blue-500 hover:text-blue-400 transition-colors" title="Exportar 3MF (Recomendado para Bambu Studio - Mantém objetos separados e legenda unida)">
           <FileCode size={20} />
         </button>
 
@@ -1081,12 +1220,88 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
             </div>
           )}
         </div>
+
+        <button 
+          onClick={() => setShowHelp(true)} 
+          className="p-2 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors"
+          title="Ajuda: Como abrir no Bambu Studio"
+        >
+          <HelpCircle size={20} />
+        </button>
       </div>
 
+      {/* Modal de Ajuda */}
+      {showHelp && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
+            <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-800/50">
+              <div className="flex items-center gap-2 text-zinc-100 font-semibold">
+                <Info size={18} className="text-blue-400" />
+                <span>Guia para Bambu Studio</span>
+              </div>
+              <button onClick={() => setShowHelp(false)} className="p-1 hover:bg-zinc-700 rounded-full text-zinc-400 hover:text-zinc-100 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px]">1</div>
+                  Exportação Recomendada
+                </h4>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Use sempre o botão azul <span className="text-blue-400 font-mono">3MF</span>. Ele é o formato mais moderno e mantém todas as peças separadas mas na posição correta.
+                </p>
+              </section>
+
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px]">2</div>
+                  Ao abrir no Bambu Studio
+                </h4>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  O Bambu Studio perguntará: <br/>
+                  <span className="italic text-zinc-300">"Load as a single object with multiple parts?"</span>
+                </p>
+                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                  <p className="text-xs font-bold text-emerald-400">
+                    Selecione "NÃO" (NO)
+                  </p>
+                  <p className="text-[10px] text-emerald-500/80 mt-1">
+                    Isso permite que você use o botão "Auto-organizar" (Auto Arrange) para espalhar as peças na mesa de impressão.
+                  </p>
+                </div>
+              </section>
+
+              <section className="space-y-2">
+                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px]">3</div>
+                  Colorindo a Legenda
+                </h4>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Para pintar as letras e cores da base: selecione a base, clique com o botão direito e escolha <span className="text-zinc-200 font-semibold">"Split to parts"</span>. Assim você pinta cada letra sem que elas saiam do lugar.
+                </p>
+              </section>
+            </div>
+
+            <div className="p-4 bg-zinc-800/30 border-t border-zinc-800 flex justify-end">
+              <button 
+                onClick={() => setShowHelp(false)}
+                className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-xs font-semibold rounded-lg transition-colors"
+              >
+                Entendi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Canvas 
-        camera={{ position: [250, -250, 250], fov: 45, far: 50000, up: [0, 0, 1] }} 
+        camera={{ position: [150, -150, 150], fov: 45, far: 50000, up: [0, 0, 1] }} 
         shadows
         gl={{ antialias: true, toneMappingExposure: 1.0 }}
+        style={{ width: '100%', height: '100%' }}
       >
         <color attach="background" args={['#18181b']} />
         
@@ -1135,5 +1350,13 @@ export function Viewer({ groupRef }: { groupRef: React.RefObject<THREE.Group> })
         <Environment preset="studio" />
       </Canvas>
     </div>
+  );
+}
+
+export function Viewer(props: any) {
+  return (
+    <ErrorBoundary>
+      <ViewerInternal {...props} />
+    </ErrorBoundary>
   );
 }

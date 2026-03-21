@@ -126,7 +126,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   dataMaxDimension: 1,
   dataWidth: 1,
   dataHeight: 1,
-  baseThicknessMm: 10,
+  baseThicknessMm: 0.2,
   cropXMin: 0,
   cropXMax: 100,
   cropYMin: 0,
@@ -136,7 +136,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   colorMap: 'none',
   smoothMesh: false,
   smoothIterations: 1,
-  showBasePlate: true,
+  showBasePlate: false,
   basePlateTitle: 'SeismicPuzzle3D',
   basePlateSubtitle: 'Escala: 1:1000',
   basePlateColor: '#27272a',
@@ -144,8 +144,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   basePlateThicknessMm: 5,
   basePlateTextRelief: 1,
   embossLabels: false,
-  labelSize: 8,
-  labelThickness: 2,
+  labelSize: 2,
+  labelThickness: 0.2,
   basePieceName: 'Base do Modelo',
   basePieceColor: '#4b5563',
   scaleMode: 'size',
@@ -157,7 +157,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSurfaces: (surfaces, names, gridWidth, gridHeight, isTimeScale, dataMaxDimension, dataWidth, dataHeight) => {
     const defaultColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
-    const numLayers = Math.max(0, surfaces.length - 1 + (get().showBasePlate ? 1 : 0));
+    const numLayers = Math.max(0, surfaces.length);
     const colors = new Array(numLayers).fill('').map((_, i) => defaultColors[i % defaultColors.length]);
     
     const newState: any = { 
@@ -228,7 +228,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   })),
   setModelSizeMm: (modelSizeMm) => set({ modelSizeMm }),
   setForceSquare: (forceSquare) => set({ forceSquare }),
-  setBaseThicknessMm: (baseThicknessMm) => set({ baseThicknessMm }),
+  setBaseThicknessMm: (baseThicknessMm) => set({ baseThicknessMm: Math.max(0.2, baseThicknessMm) }),
   setCropX: (min, max) => set({ cropXMin: min, cropXMax: max }),
   setCropY: (min, max) => set({ cropYMin: min, cropYMax: max }),
   setShowWireframe: (showWireframe) => set({ showWireframe }),
@@ -236,22 +236,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setColorMap: (colorMap) => set({ colorMap }),
   setSmoothMesh: (smoothMesh) => set({ smoothMesh }),
   setSmoothIterations: (smoothIterations) => set({ smoothIterations }),
-  setShowBasePlate: (showBasePlate) => set((state) => {
-    const newVisibleLayers = [...state.visibleLayers];
-    const newLayerColors = [...state.layerColors];
-    const newLayerTextures = [...state.layerTextures];
-    
-    if (showBasePlate && state.surfaces.length > 0 && newVisibleLayers.length < state.surfaces.length) {
-      newVisibleLayers.push(true);
-      newLayerColors.push(state.basePieceColor);
-      newLayerTextures.push('none');
-    } else if (!showBasePlate && newVisibleLayers.length === state.surfaces.length) {
-      newVisibleLayers.pop();
-      newLayerColors.pop();
-      newLayerTextures.pop();
-    }
-    return { showBasePlate, visibleLayers: newVisibleLayers, layerColors: newLayerColors, layerTextures: newLayerTextures };
-  }),
+  setShowBasePlate: (showBasePlate) => set({ showBasePlate }),
   setBasePlateTitle: (basePlateTitle) => set({ basePlateTitle }),
   setBasePlateSubtitle: (basePlateSubtitle) => set({ basePlateSubtitle }),
   setBasePlateColor: (basePlateColor) => set({ basePlateColor }),
@@ -259,8 +244,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setBasePlateThicknessMm: (basePlateThicknessMm) => set({ basePlateThicknessMm }),
   setBasePlateTextRelief: (basePlateTextRelief) => set({ basePlateTextRelief }),
   setEmbossLabels: (embossLabels) => set({ embossLabels }),
-  setLabelSize: (labelSize) => set({ labelSize }),
-  setLabelThickness: (labelThickness) => set({ labelThickness }),
+  setLabelSize: (labelSize) => set({ labelSize: Math.max(2, labelSize) }),
+  setLabelThickness: (labelThickness) => set({ labelThickness: Math.max(0.2, labelThickness) }),
   setBasePieceName: (basePieceName) => set({ basePieceName }),
   setBasePieceColor: (basePieceColor) => set({ basePieceColor }),
   setScaleMode: (scaleMode) => set((state) => {
@@ -404,8 +389,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     cropYMax: 100,
     faults: [],
     embossLabels: false,
-    labelSize: 8,
-    labelThickness: 2
+    labelSize: 2,
+    labelThickness: 0.2,
+    baseThicknessMm: 0.2
   }),
 
   exportProject: () => {

@@ -1,74 +1,124 @@
 import JSZip from 'jszip';
 import * as THREE from 'three';
 
-export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: string[]) {
+/**
+ * Exports multiple geometries to a single 3MF file.
+ * 3MF is a modern 3D printing format that supports multiple objects, 
+ * units, and metadata, making it ideal for Bambu Studio.
+ */
+export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: string[], colors: string[]) {
   const zip = new JSZip();
-
+  
   // 1. [Content_Types].xml
-  const contentTypes = `<?xml version="1.0" encoding="UTF-8"?>
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
-</Types>`;
-  zip.file('[Content_Types].xml', contentTypes);
+</Types>`);
 
   // 2. _rels/.rels
-  const rels = `<?xml version="1.0" encoding="UTF-8"?>
+  zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
-</Relationships>`;
-  zip.file('_rels/.rels', rels);
+</Relationships>`);
 
   // 3. 3D/3dmodel.model
   const modelParts: string[] = [];
   modelParts.push(`<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <metadata name="Copyright">SeismicPuzzle3D</metadata>
-  <resources>
-`);
+  <metadata name="Title">Seismic Puzzle 3D</metadata>
+  <metadata name="Description">Exported from SeismicPuzzle3D Viewer</metadata>
+  <resources>`);
+
+  // Define base materials for colors
+  modelParts.push(`    <basematerials id="1">`);
+  colors.forEach((color, idx) => {
+    // Ensure color is in #RRGGBB format
+    const hex = color.startsWith('#') ? color : `#${color}`;
+    modelParts.push(`      <base name="Material ${idx}" displaycolor="${hex.toUpperCase()}" />`);
+  });
+  modelParts.push(`    </basematerials>`);
+
+  // Find global min Z to translate model to bed (Z=0)
+  let globalMinZ = Infinity;
+  geometries.forEach(geom => {
+    const pos = geom.getAttribute('position');
+    for (let i = 0; i < pos.count; i++) {
+      const z = pos.getZ(i);
+      if (z < globalMinZ) globalMinZ = z;
+    }
+  });
+
+  if (globalMinZ === Infinity) globalMinZ = 0;
 
   geometries.forEach((geom, index) => {
+    const name = names[index] || `Object ${index + 1}`;
     const position = geom.getAttribute('position');
     const indexAttr = geom.getIndex();
-    if (!position || !indexAttr) return;
+    const objectId = index + 2;
+    const materialId = 1;
+    const materialIndex = index;
 
-    const name = names[index] || `Layer ${index + 1}`;
-    modelParts.push(`    <object id="${index + 1}" type="model" name="${name}">
+    modelParts.push(`    <object id="${objectId}" type="model">
+      <metadata name="Name">${name}</metadata>
       <mesh>
-        <vertices>
-`);
-    
+        <vertices>`);
+
+    // Vertices
+    const vertices: string[] = [];
     for (let i = 0; i < position.count; i++) {
-      modelParts.push(`          <vertex x="${position.getX(i).toFixed(4)}" y="${position.getY(i).toFixed(4)}" z="${position.getZ(i).toFixed(4)}" />\n`);
+      const x = position.getX(i).toFixed(4);
+      const y = position.getY(i).toFixed(4);
+      const z = (position.getZ(i) - globalMinZ).toFixed(4);
+      vertices.push(`          <vertex x="${x}" y="${y}" z="${z}" />`);
     }
-    
+    modelParts.push(vertices.join('\n'));
+
     modelParts.push(`        </vertices>
-        <triangles>
-`);
-    
-    for (let i = 0; i < indexAttr.count; i += 3) {
-      modelParts.push(`          <triangle v1="${indexAttr.getX(i)}" v2="${indexAttr.getX(i + 1)}" v3="${indexAttr.getX(i + 2)}" />\n`);
+        <triangles>`);
+
+    // Triangles with material assignment
+    const triangles: string[] = [];
+    if (indexAttr) {
+      for (let i = 0; i < indexAttr.count; i += 3) {
+        const v1 = Math.round(indexAttr.array[i]);
+        const v2 = Math.round(indexAttr.array[i + 1]);
+        const v3 = Math.round(indexAttr.array[i + 2]);
+        triangles.push(`          <triangle v1="${v1}" v2="${v2}" v3="${v3}" pid="${materialId}" p1="${materialIndex}" />`);
+      }
+    } else {
+      for (let i = 0; i < position.count; i += 3) {
+        triangles.push(`          <triangle v1="${i}" v2="${i + 1}" v3="${i + 2}" pid="${materialId}" p1="${materialIndex}" />`);
+      }
     }
-    
+    modelParts.push(triangles.join('\n'));
+
     modelParts.push(`        </triangles>
       </mesh>
-    </object>\n`);
+    </object>`);
   });
 
   modelParts.push(`  </resources>
-  <build>
-`);
-  
+  <build>`);
+
   geometries.forEach((_, index) => {
-    modelParts.push(`    <item objectid="${index + 1}" />\n`);
+    modelParts.push(`    <item objectid="${index + 2}" />`);
   });
-  
+
   modelParts.push(`  </build>
 </model>`);
 
-  zip.file('3D/3dmodel.model', modelParts.join(''));
+  zip.file('3D/3dmodel.model', modelParts.join('\n'));
 
-  const content = await zip.generateAsync({ type: 'blob' });
+  // Generate ZIP with DEFLATE compression for better compatibility
+  const content = await zip.generateAsync({ 
+    type: 'blob',
+    compression: "DEFLATE",
+    compressionOptions: {
+      level: 6 // Balanced speed/size
+    }
+  });
+
   const link = document.createElement('a');
   link.href = URL.createObjectURL(content);
   link.download = 'seismic_puzzle.3mf';
