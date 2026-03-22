@@ -11,8 +11,10 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { Evaluator, Brush, SUBTRACTION, ADDITION } from 'three-bvh-csg';
 import { loadFont } from './fontLoader';
 
-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  constructor(props: { children: ReactNode }) {
+import { useTranslation } from 'react-i18next';
+
+class ErrorBoundary extends Component<{ children: ReactNode, t: any }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode, t: any }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -27,22 +29,24 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
 
   render() {
     if (this.state.hasError) {
+      const { t } = this.props;
       return (
         <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900 text-zinc-400 p-8 text-center rounded-xl border border-zinc-800">
           <AlertTriangle size={48} className="text-amber-500 mb-4" />
-          <h3 className="text-lg font-bold text-zinc-200 mb-2">Erro no Visualizador 3D</h3>
+          <h3 className="text-lg font-bold text-zinc-200 mb-2">{t('app.viewerError')}</h3>
           <p className="text-sm max-w-md">
-            Ocorreu um erro ao renderizar o modelo 3D. Isso pode ser devido a dados corrompidos ou um problema de compatibilidade.
+            {t('app.viewerErrorDesc')}
           </p>
           <button 
             onClick={() => window.location.reload()}
             className="mt-6 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-sm transition-colors"
           >
-            Recarregar Página
+            {t('app.reloadPage')}
           </button>
         </div>
       );
     }
+
     return this.props.children;
   }
 }
@@ -615,6 +619,7 @@ function PuzzleLayer({
 }
 
 export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
+  const { t } = useTranslation();
   const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity, faults, faultWidth, showFaults, embossLabels, labelSize, labelThickness } = useAppStore();
 
   if (surfaces.length === 0) return null;
@@ -920,17 +925,17 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           {visibleLayers.map((visible, idx) => {
             if (!visible) return null;
             const isBaseLayer = idx === visibleLayers.length - 1;
-            const name = isBaseLayer ? basePieceName : (surfaceNames[idx] || `Peça ${idx + 1}`);
+            const name = isBaseLayer ? basePieceName : (surfaceNames[idx] || `${t('app.piece')} ${idx + 1}`);
             const color = layerColors[idx] || '#ffffff';
             
             return (
               <group key={`legend-${idx}`} position={[0, -idx * 6 * textScale, 0]}>
-                <mesh position={[0, 2 * textScale, textRelief / 2]} name={`Legenda_Cor_${idx + 1}`}>
+                <mesh position={[0, 2 * textScale, textRelief / 2]} name={`${t('app.legendColor')}_${idx + 1}`}>
                   <boxGeometry args={[4 * textScale, 4 * textScale, textRelief]} />
                   <meshStandardMaterial color={color} />
                 </mesh>
                 <Text3D 
-                  name={`Legenda_Texto_${idx + 1}`}
+                  name={`${t('app.legendText')}_${idx + 1}`}
                   font={fontUrl} 
                   size={3 * textScale} 
                   height={textRelief} 
@@ -999,11 +1004,12 @@ function CameraController({ viewTrigger, viewType }: { viewTrigger: number, view
 }
 
 const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) => {
+  const { t } = useTranslation();
   const [viewTrigger, setViewTrigger] = useState(0);
   const [viewType, setViewType] = useState('iso');
   const [showLightingSlider, setShowLightingSlider] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const { lightingIntensity, setLightingIntensity, basePlateColor, surfaces, lastUpdate } = useAppStore();
+  const { theme, lightingIntensity, setLightingIntensity, basePlateColor, surfaces, lastUpdate } = useAppStore();
 
   const handleViewChange = (type: string) => {
     setViewType(type);
@@ -1015,48 +1021,48 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
   const doExportZIP = () => handleExportZIP(groupRef);
 
   return (
-    <div className="w-full flex-1 min-h-0 relative bg-zinc-900 rounded-xl overflow-hidden shadow-inner border border-zinc-800">
+    <div className={`w-full flex-1 min-h-0 relative rounded-xl overflow-hidden shadow-inner border transition-colors duration-300 ${theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200'}`}>
       {/* Toolbar de Câmera */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 bg-zinc-800/90 p-1.5 rounded-lg border border-zinc-700/50 backdrop-blur-sm shadow-lg">
-        <button onClick={() => handleViewChange('top')} className="p-2 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors" title="Vista Superior (Mapa)">
+      <div className={`absolute top-4 right-4 z-10 flex flex-col gap-2 p-1.5 rounded-lg border backdrop-blur-sm shadow-lg transition-colors ${theme === 'dark' ? 'bg-zinc-800/90 border-zinc-700/50' : 'bg-white/90 border-zinc-200'}`}>
+        <button onClick={() => handleViewChange('top')} className={`p-2 rounded transition-colors ${theme === 'dark' ? 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'}`} title={t('app.viewTop')}>
           <Square size={20} />
         </button>
-        <button onClick={() => handleViewChange('front')} className="p-2 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors" title="Vista Frontal (Seção)">
+        <button onClick={() => handleViewChange('front')} className={`p-2 rounded transition-colors ${theme === 'dark' ? 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'}`} title={t('app.viewFront')}>
           <div className="w-5 h-5 flex items-center justify-center">
             <div className="w-full h-1.5 bg-current rounded-sm" />
           </div>
         </button>
-        <button onClick={() => handleViewChange('iso')} className="p-2 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors" title="Vista Isométrica">
+        <button onClick={() => handleViewChange('iso')} className={`p-2 rounded transition-colors ${theme === 'dark' ? 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'}`} title={t('app.viewIso')}>
           <Box size={20} />
         </button>
         
-        <div className="h-px bg-zinc-700 my-1 mx-2" />
+        <div className={`h-px my-1 mx-2 ${theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-200'}`} />
         
-        <button onClick={doExport3MF} className="p-2 bg-blue-600 hover:bg-blue-500 rounded text-white transition-colors shadow-md flex items-center justify-center" title="Exportar 3MF (Recomendado para Bambu Studio - Mantém objetos separados e legenda unida)">
+        <button onClick={doExport3MF} className="p-2 bg-blue-600 hover:bg-blue-500 rounded text-white transition-colors shadow-md flex items-center justify-center" title={t('app.export3mfDesc')}>
           <FileCode size={20} />
         </button>
-        <button onClick={doExportZIP} className="p-2 hover:bg-purple-900/40 rounded text-purple-500 hover:text-purple-400 transition-colors" title="Exportar Peças Separadas (ZIP com STLs Individuais)">
+        <button onClick={doExportZIP} className={`p-2 rounded transition-colors ${theme === 'dark' ? 'hover:bg-purple-900/40 text-purple-500 hover:text-purple-400' : 'hover:bg-purple-50 text-purple-600 hover:text-purple-700'}`} title={t('app.exportZipDesc')}>
           <Archive size={20} />
         </button>
-        <button onClick={doExportSTL} className="p-2 hover:bg-emerald-900/40 rounded text-emerald-500 hover:text-emerald-400 transition-colors" title="Exportar Cena (STL Único - Tudo em um objeto. Não recomendado para separar peças)">
+        <button onClick={doExportSTL} className={`p-2 rounded transition-colors ${theme === 'dark' ? 'hover:bg-emerald-900/40 text-emerald-500 hover:text-emerald-400' : 'hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700'}`} title={t('app.exportStlDesc')}>
           <Download size={20} />
         </button>
 
-        <div className="h-px bg-zinc-700 my-1 mx-2" />
+        <div className={`h-px my-1 mx-2 ${theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-200'}`} />
 
         <div className="relative group/light">
           <button 
             onClick={() => setShowLightingSlider(!showLightingSlider)} 
-            className={`p-2 rounded transition-colors ${showLightingSlider ? 'bg-amber-500/20 text-amber-500' : 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100'}`}
-            title="Ajustar Iluminação"
+            className={`p-2 rounded transition-colors ${showLightingSlider ? 'bg-amber-500/20 text-amber-500' : (theme === 'dark' ? 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900')}`}
+            title={t('app.adjustLighting')}
           >
             <Sun size={20} />
           </button>
           
           {showLightingSlider && (
-            <div className="absolute right-full mr-4 top-0 bg-zinc-800/95 p-3 rounded-lg border border-zinc-700 shadow-xl backdrop-blur-sm flex flex-col gap-2 min-w-[150px]">
+            <div className={`absolute right-full mr-4 top-0 p-3 rounded-lg border shadow-xl backdrop-blur-sm flex flex-col gap-2 min-w-[150px] transition-colors ${theme === 'dark' ? 'bg-zinc-800/95 border-zinc-700' : 'bg-white/95 border-zinc-200'}`}>
               <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Brilho</span>
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>{t('app.brightness')}</span>
                 <span className="text-[10px] font-mono text-amber-500">{Math.round(lightingIntensity * 100)}%</span>
               </div>
               <input 
@@ -1066,7 +1072,7 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
                 step="0.1" 
                 value={lightingIntensity} 
                 onChange={(e) => setLightingIntensity(parseFloat(e.target.value))}
-                className="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                className={`w-full h-1.5 rounded-lg appearance-none cursor-pointer accent-amber-500 ${theme === 'dark' ? 'bg-zinc-700' : 'bg-zinc-200'}`}
               />
             </div>
           )}
@@ -1074,8 +1080,8 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
 
         <button 
           onClick={() => setShowHelp(true)} 
-          className="p-2 hover:bg-zinc-700 rounded text-zinc-400 hover:text-zinc-100 transition-colors"
-          title="Ajuda: Como abrir no Bambu Studio"
+          className={`p-2 rounded transition-colors ${theme === 'dark' ? 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'}`}
+          title={t('app.help')}
         >
           <HelpCircle size={20} />
         </button>
@@ -1084,64 +1090,60 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
       {/* Modal de Ajuda */}
       {showHelp && (
         <div className="absolute inset-0 z-50 flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-            <div className="p-4 border-b border-zinc-800 flex justify-between items-center bg-zinc-800/50">
-              <div className="flex items-center gap-2 text-zinc-100 font-semibold">
+          <div className={`border rounded-2xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 ${theme === 'dark' ? 'bg-zinc-900 border-zinc-700' : 'bg-white border-zinc-200'}`}>
+            <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'bg-zinc-800/50 border-zinc-800' : 'bg-zinc-50 border-zinc-100'}`}>
+              <div className={`flex items-center gap-2 font-semibold ${theme === 'dark' ? 'text-zinc-100' : 'text-zinc-900'}`}>
                 <Info size={18} className="text-blue-400" />
-                <span>Guia para Bambu Studio</span>
+                <span>{t('app.bambuGuide')}</span>
               </div>
-              <button onClick={() => setShowHelp(false)} className="p-1 hover:bg-zinc-700 rounded-full text-zinc-400 hover:text-zinc-100 transition-colors">
+              <button onClick={() => setShowHelp(false)} className={`p-1 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'}`}>
                 <X size={20} />
               </button>
             </div>
             
-            <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+            <div className={`p-6 space-y-4 overflow-y-auto max-h-[70vh] ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-600'}`}>
               <section className="space-y-2">
-                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                <h4 className={`text-sm font-bold flex items-center gap-2 ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-800'}`}>
                   <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px]">1</div>
-                  Exportação Recomendada
+                  {t('app.recommendedExport')}
                 </h4>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  Use sempre o botão azul <span className="text-blue-400 font-mono">3MF</span>. Ele é o formato mais moderno e mantém todas as peças separadas mas na posição correta.
-                </p>
+                <p className={`text-xs leading-relaxed ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`} dangerouslySetInnerHTML={{ __html: t('app.recommendedExportDesc') }} />
               </section>
 
               <section className="space-y-2">
-                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                <h4 className={`text-sm font-bold flex items-center gap-2 ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-800'}`}>
                   <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px]">2</div>
-                  Ao abrir no Bambu Studio
+                  {t('app.whenOpeningBambu')}
                 </h4>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  O Bambu Studio perguntará: <br/>
-                  <span className="italic text-zinc-300">"Load as a single object with multiple parts?"</span>
+                <p className={`text-xs leading-relaxed ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                  {t('app.bambuAsk')} <br/>
+                  <span className={`italic ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'}`}>{t('app.loadAsSingle')}</span>
                 </p>
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-                  <p className="text-xs font-bold text-emerald-400">
-                    Selecione "NÃO" (NO)
+                <div className={`p-3 border rounded-lg ${theme === 'dark' ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-emerald-50 border-emerald-100'}`}>
+                  <p className={`text-xs font-bold ${theme === 'dark' ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                    {t('app.selectNo')}
                   </p>
-                  <p className="text-[10px] text-emerald-500/80 mt-1">
-                    Isso permite que você use o botão "Auto-organizar" (Auto Arrange) para espalhar as peças na mesa de impressão.
+                  <p className={`text-[10px] mt-1 ${theme === 'dark' ? 'text-emerald-500/80' : 'text-emerald-600'}`}>
+                    {t('app.autoArrangeDesc')}
                   </p>
                 </div>
               </section>
 
               <section className="space-y-2">
-                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                <h4 className={`text-sm font-bold flex items-center gap-2 ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-800'}`}>
                   <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px]">3</div>
-                  Colorindo a Legenda
+                  {t('app.coloringLegend')}
                 </h4>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  Para pintar as letras e cores da base: selecione a base, clique com o botão direito e escolha <span className="text-zinc-200 font-semibold">"Split to parts"</span>. Assim você pinta cada letra sem que elas saiam do lugar.
-                </p>
+                <p className={`text-xs leading-relaxed ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`} dangerouslySetInnerHTML={{ __html: t('app.splitToPartsDesc') }} />
               </section>
             </div>
 
-            <div className="p-4 bg-zinc-800/30 border-t border-zinc-800 flex justify-end">
+            <div className={`p-4 border-t flex justify-end ${theme === 'dark' ? 'bg-zinc-800/30 border-zinc-800' : 'bg-zinc-50/50 border-zinc-100'}`}>
               <button 
                 onClick={() => setShowHelp(false)}
-                className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-100 text-xs font-semibold rounded-lg transition-colors"
+                className={`px-4 py-2 text-xs font-semibold rounded-lg transition-colors ${theme === 'dark' ? 'bg-zinc-700 hover:bg-zinc-600 text-zinc-100' : 'bg-white border border-zinc-200 hover:bg-zinc-50 text-zinc-900'}`}
               >
-                Entendi
+                {t('app.gotIt')}
               </button>
             </div>
           </div>
@@ -1154,7 +1156,7 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
         gl={{ antialias: true, toneMappingExposure: 1.0 }}
         style={{ width: '100%', height: '100%' }}
       >
-        <color attach="background" args={['#18181b']} />
+        <color attach="background" args={[theme === 'dark' ? '#18181b' : '#f4f4f5']} />
         
         {/* Configuração de Iluminação Uniforme e Estática */}
         <ambientLight intensity={0.5 * lightingIntensity} />
@@ -1198,16 +1200,21 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
         </React.Suspense>
         
         <CameraController viewTrigger={viewTrigger} viewType={viewType} />
-        <Environment preset="studio" />
+        <Environment preset={theme === 'dark' ? 'studio' : 'city'} />
       </Canvas>
     </div>
   );
 }
 
 export function Viewer(props: any) {
+  const { t } = useTranslation();
+  const { theme } = useAppStore();
+  
   return (
-    <ErrorBoundary>
-      <ViewerInternal {...props} />
-    </ErrorBoundary>
+    <div className={`w-full h-full flex flex-col transition-colors duration-300 ${theme === 'dark' ? 'bg-zinc-950' : 'bg-zinc-50'}`}>
+      <ErrorBoundary t={t}>
+        <ViewerInternal {...props} />
+      </ErrorBoundary>
+    </div>
   );
 }

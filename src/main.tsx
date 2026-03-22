@@ -1,6 +1,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import './i18n';
 import './index.css';
 
 // Suppress known Three.js deprecation warnings from upstream libraries (like @react-three/fiber)

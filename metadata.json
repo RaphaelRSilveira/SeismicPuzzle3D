@@ -1,5 +1,5 @@
 {
   "name": "Seismic Puzzle 3D",
-  "description": "Convert seismic horizons into a 3D puzzle with export to STL.",
+  "description": "Uma ferramenta web interativa (também conhecida como SeismicPuzzle) que lê arquivos de horizontes sísmicos e os transforma em modelos 3D (quebra-cabeças geológicos) prontos para impressão em impressoras 3D.",
   "requestFramePermissions": []
 }

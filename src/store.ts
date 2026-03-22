@@ -57,6 +57,7 @@ export interface AppState {
   faults: Fault[];
   faultWidth: number;
   showFaults: boolean;
+  theme: 'dark' | 'light';
   lastUpdate: number;
   
   setSurfaces: (surfaces: THREE.Vector3[][], names: string[], width: number, height: number, isTime: boolean, dataMaxDim: number, dataWidth: number, dataHeight: number) => void;
@@ -98,6 +99,7 @@ export interface AppState {
   toggleFaultVisibility: (index: number) => void;
   setFaultWidth: (v: number) => void;
   setShowFaults: (v: boolean) => void;
+  setTheme: (theme: 'dark' | 'light') => void;
   generateExample: () => void;
   clear: () => void;
   exportProject: () => string;
@@ -152,6 +154,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   faults: [],
   faultWidth: 2,
   showFaults: true,
+  theme: 'dark',
   lastUpdate: Date.now(),
 
   setSurfaces: (surfaces, names, gridWidth, gridHeight, isTimeScale, dataMaxDimension, dataWidth, dataHeight) => {
@@ -271,6 +274,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
   setFaultWidth: (faultWidth) => set({ faultWidth }),
   setShowFaults: (showFaults) => set({ showFaults }),
+  setTheme: (theme) => set({ theme }),
   
   generateExample: () => {
     const gridWidth = 50;
