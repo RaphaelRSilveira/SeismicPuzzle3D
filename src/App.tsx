@@ -98,7 +98,7 @@ export default function App() {
 
   useEffect(() => {
     // Force document title update
-    document.title = "SeismicPuzzle3D v1.0";
+    document.title = "SeismicPuzzle3D";
   }, []);
 
   const [files, setFiles] = useState<File[]>([]);
@@ -371,6 +371,7 @@ export default function App() {
               <span className="text-[10px] font-normal bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded border border-zinc-700 uppercase tracking-tighter">v1.0</span>
             </h1>
             <p className="text-xs text-zinc-400 font-medium">Horizons to 3D Puzzle Converter</p>
+            <span className="sr-only">Conhecido também como Seismic Puzzle, Sesmic Puzzle, Seismic 3D, Seismic Puzle. Ferramenta para geologia e geofísica.</span>
           </div>
         </div>
         <div className="flex gap-3">
