@@ -2,8 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore, Fault } from './store';
 import { parseFile, createCommonGrid } from './parser';
 import { Viewer } from './Viewer';
-import { STLExporter } from 'three/addons/exporters/STLExporter.js';
-import JSZip from 'jszip';
+import { handleExportSTL, handleExportZIP, handleExport3MF } from './exportUtils';
 import * as THREE from 'three';
 import { Upload, Download, Settings, Trash2, Layers, Info, Eye, Box, Activity, Save, FolderOpen, AlertTriangle, X } from 'lucide-react';
 
@@ -251,54 +250,16 @@ export default function App() {
     }
   };
 
-  const exportSTL = () => {
-    if (!groupRef.current) return;
-    const exporter = new STLExporter();
-    const result = exporter.parse(groupRef.current, { binary: true });
-    
-    const blob = new Blob([result], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.style.display = 'none';
-    link.href = url;
-    link.download = 'seismic_puzzle.stl';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const doExportSTL = () => {
+    if (groupRef.current) handleExportSTL(groupRef);
   };
 
-  const exportAllSTLs = async () => {
-    if (!groupRef.current) return;
-    const exporter = new STLExporter();
-    const zip = new JSZip();
-    
-    // Iterate through children (layers)
-    const layers = groupRef.current.children;
-    
-    layers.forEach((layerGroup, idx) => {
-      // Each layer is in a group (because of exploded view)
-      // We need to temporarily reset its position for export
-      const originalPos = layerGroup.position.clone();
-      layerGroup.position.set(0, 0, 0);
-      
-      const result = exporter.parse(layerGroup, { binary: true }) as DataView;
-      const name = `Peca_${idx + 1}.stl`;
-      zip.file(name, result.buffer);
-      
-      layerGroup.position.copy(originalPos);
-    });
-    
-    const content = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(content);
-    const link = document.createElement('a');
-    link.style.display = 'none';
-    link.href = url;
-    link.download = 'pecas_quebra_cabeca.zip';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const doExportZIP = () => {
+    if (groupRef.current) handleExportZIP(groupRef);
+  };
+
+  const doExport3MF = () => {
+    if (groupRef.current) handleExport3MF(groupRef, useAppStore.getState().basePlateColor);
   };
 
   const handleFaultUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -400,21 +361,31 @@ export default function App() {
             Gerar Exemplo
           </button>
           <button
-            onClick={() => checkThinLines(exportAllSTLs)}
+            onClick={() => checkThinLines(doExport3MF)}
+            disabled={visibleSurfaces.filter(Boolean).length < 2}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition-colors flex items-center gap-2 shadow-md shadow-blue-900/20"
+            title="Exportar 3MF (Recomendado para Bambu Studio - Mantém objetos separados e legenda unida)"
+          >
+            <Download size={16} />
+            3MF (Recomendado)
+          </button>
+          <button
+            onClick={() => checkThinLines(doExportZIP)}
             disabled={visibleSurfaces.filter(Boolean).length < 2}
             className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
             title="Exportar todas as peças separadas em um arquivo ZIP"
           >
             <Download size={16} />
-            ZIP (Todas Peças)
+            ZIP (Peças Separadas)
           </button>
           <button
-            onClick={() => checkThinLines(exportSTL)}
+            onClick={() => checkThinLines(doExportSTL)}
             disabled={visibleSurfaces.filter(Boolean).length < 2}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition-colors flex items-center gap-2 shadow-md shadow-emerald-900/20"
+            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
+            title="Exportar Cena (STL Único - Tudo em um objeto)"
           >
             <Download size={16} />
-            STL
+            STL (Cena Única)
           </button>
         </div>
       </header>

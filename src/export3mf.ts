@@ -6,7 +6,7 @@ import * as THREE from 'three';
  * 3MF is a modern 3D printing format that supports multiple objects, 
  * units, and metadata, making it ideal for Bambu Studio.
  */
-export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: string[], colors: string[]) {
+export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: string[], colors: string[], groupIds?: number[]) {
   const zip = new JSZip();
   
   // 1. [Content_Types].xml
@@ -98,11 +98,60 @@ export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: str
     </object>`);
   });
 
+  // Handle groups
+  const nextObjectId = geometries.length + 2;
+  const groups = new Map<number, number[]>();
+  
+  if (groupIds) {
+    groupIds.forEach((groupId, index) => {
+      if (groupId !== undefined && groupId !== null) {
+        if (!groups.has(groupId)) {
+          groups.set(groupId, []);
+        }
+        groups.get(groupId)!.push(index + 2); // objectId
+      }
+    });
+  }
+
+  let currentGroupId = nextObjectId;
+  const groupObjectIds = new Map<number, number>();
+
+  groups.forEach((objectIds, groupId) => {
+    modelParts.push(`    <object id="${currentGroupId}" type="model">
+      <metadata name="Name">Group ${groupId}</metadata>
+      <components>`);
+    
+    objectIds.forEach(objId => {
+      modelParts.push(`        <component objectid="${objId}" />`);
+    });
+    
+    modelParts.push(`      </components>
+    </object>`);
+    
+    groupObjectIds.set(groupId, currentGroupId);
+    currentGroupId++;
+  });
+
   modelParts.push(`  </resources>
   <build>`);
 
   geometries.forEach((_, index) => {
-    modelParts.push(`    <item objectid="${index + 2}" />`);
+    const objId = index + 2;
+    let isGrouped = false;
+    
+    if (groupIds && groupIds[index] !== undefined && groupIds[index] !== null) {
+      isGrouped = true;
+    }
+    
+    // Only add to build if it's not part of a group
+    if (!isGrouped) {
+      modelParts.push(`    <item objectid="${objId}" />`);
+    }
+  });
+
+  // Add groups to build
+  groupObjectIds.forEach((groupObjId) => {
+    modelParts.push(`    <item objectid="${groupObjId}" />`);
   });
 
   modelParts.push(`  </build>

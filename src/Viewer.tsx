@@ -4,10 +4,8 @@ import { OrbitControls, Center, Environment, Text3D } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAppStore, Fault } from './store';
 import { createLayerGeometry } from './geometry';
-import { STLExporter } from 'three/addons/exporters/STLExporter.js';
+import { handleExportSTL, handleExportZIP, handleExport3MF } from './exportUtils';
 import { Box, Square, Download, FileCode, Sun, Activity, Archive, HelpCircle, X, Info, AlertTriangle } from 'lucide-react';
-import { exportTo3MF } from './export3mf';
-import { exportToZIP } from './exportZip';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { Evaluator, Brush, SUBTRACTION, ADDITION } from 'three-bvh-csg';
@@ -532,7 +530,7 @@ function PuzzleLayer({
         if (topPoints.length >= 2) {
           const curve = new THREE.CatmullRomCurve3(topPoints);
           traces.push(
-            <mesh key={`fault-top-${fault.id}-${segIdx}`} castShadow receiveShadow>
+            <mesh key={`fault-top-${fault.id}-${segIdx}`} castShadow receiveShadow name={`Fault_${fault.id}`}>
               <tubeGeometry args={[curve, Math.max(2, topPoints.length), tubeRadius, 6, false]} />
               <meshStandardMaterial color={fault.color} polygonOffset polygonOffsetFactor={-1} />
             </mesh>
@@ -552,7 +550,7 @@ function PuzzleLayer({
         if (bottomPoints.length >= 2) {
           const curve = new THREE.CatmullRomCurve3(bottomPoints);
           traces.push(
-            <mesh key={`fault-bottom-${fault.id}-${segIdx}`} castShadow receiveShadow>
+            <mesh key={`fault-bottom-${fault.id}-${segIdx}`} castShadow receiveShadow name={`Fault_${fault.id}`}>
               <tubeGeometry args={[curve, Math.max(2, bottomPoints.length), tubeRadius, 6, false]} />
               <meshStandardMaterial color={fault.color} polygonOffset polygonOffsetFactor={-1} />
             </mesh>
@@ -587,7 +585,7 @@ function PuzzleLayer({
 
         const curve = new THREE.CatmullRomCurve3(wallPoints);
         traces.push(
-          <mesh key={`fault-wall-v-${fault.id}-${bpIdx}`} castShadow receiveShadow>
+          <mesh key={`fault-wall-v-${fault.id}-${bpIdx}`} castShadow receiveShadow name={`Fault_${fault.id}`}>
             <tubeGeometry args={[curve, 2, tubeRadius, 6, false]} />
             <meshStandardMaterial color={fault.color} polygonOffset polygonOffsetFactor={-1} />
           </mesh>
@@ -1012,223 +1010,9 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
     setViewTrigger(prev => prev + 1);
   };
 
-  const handleExportSTL = async () => {
-    if (!groupRef.current) return;
-    
-    // Ensure world matrices are up to date
-    groupRef.current.updateWorldMatrix(true, true);
-    
-    const geometries: THREE.BufferGeometry[] = [];
-    
-    groupRef.current.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.geometry) {
-        const geom = child.geometry.clone();
-        geom.applyMatrix4(child.matrixWorld);
-        geometries.push(geom);
-      }
-    });
-
-    if (geometries.length === 0) return;
-
-    // For a single STL, we should ideally union everything to avoid non-manifold internal faces
-    // but this can be very slow. We'll try to merge vertices at least.
-    let finalGeom: THREE.BufferGeometry;
-    
-    if (geometries.length > 1) {
-      // Try to union them if they are few, otherwise just merge
-      if (geometries.length < 15) {
-        try {
-          const evaluator = new Evaluator();
-          evaluator.useGroups = false;
-          
-          let resultBrush = new Brush(geometries[0]);
-          for (let i = 1; i < geometries.length; i++) {
-            const nextBrush = new Brush(geometries[i]);
-            resultBrush = evaluator.evaluate(resultBrush, nextBrush, ADDITION);
-          }
-          finalGeom = resultBrush.geometry;
-        } catch (err) {
-          console.error("Full STL Union failed, falling back to merge", err);
-          finalGeom = BufferGeometryUtils.mergeGeometries(geometries, false)!;
-        }
-      } else {
-        finalGeom = BufferGeometryUtils.mergeGeometries(geometries, false)!;
-      }
-    } else {
-      finalGeom = geometries[0];
-    }
-
-    finalGeom = BufferGeometryUtils.mergeVertices(finalGeom, 0.1);
-    finalGeom.computeVertexNormals();
-
-    const exporter = new STLExporter();
-    const result = exporter.parse(new THREE.Mesh(finalGeom), { binary: true });
-    const blob = new Blob([result], { type: 'application/octet-stream' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'seismic_puzzle_full.stl';
-    link.click();
-  };
-
-  const handleExport3MF = async () => {
-    if (!groupRef.current) return;
-    
-    // Ensure world matrices are up to date
-    groupRef.current.updateWorldMatrix(true, true);
-    
-    const geometries: THREE.BufferGeometry[] = [];
-    const names: string[] = [];
-    const colors: string[] = [];
-    const baseGeometries: THREE.BufferGeometry[] = [];
-    
-    groupRef.current.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.geometry) {
-        if (child.name.startsWith('Layer_')) {
-          // Clone and apply world matrix to geometry for correct export
-          const geom = child.geometry.clone();
-          geom.applyMatrix4(child.matrixWorld);
-          
-          // Ensure manifold geometry
-          const mergedGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
-          mergedGeom.computeVertexNormals();
-          
-          geometries.push(mergedGeom);
-          names.push(child.name);
-          
-          if (child.material instanceof THREE.MeshStandardMaterial) {
-            colors.push(child.material.color.getHexString());
-          } else {
-            colors.push('ffffff');
-          }
-        } else if (child.name.startsWith('Base_')) {
-          const geom = child.geometry.clone();
-          geom.applyMatrix4(child.matrixWorld);
-          baseGeometries.push(geom);
-        }
-      }
-    });
-
-    if (baseGeometries.length > 0) {
-      // Use CSG ADDITION for the base plate to ensure it's manifold and has no internal faces
-      try {
-        const evaluator = new Evaluator();
-        evaluator.useGroups = false;
-        
-        let resultBrush = new Brush(baseGeometries[0]);
-        for (let i = 1; i < baseGeometries.length; i++) {
-          const nextBrush = new Brush(baseGeometries[i]);
-          resultBrush = evaluator.evaluate(resultBrush, nextBrush, ADDITION);
-        }
-        
-        let mergedBase = resultBrush.geometry;
-        mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
-        mergedBase.computeVertexNormals();
-        
-        geometries.push(mergedBase);
-        names.push('Base_Plate');
-        colors.push(basePlateColor.replace('#', ''));
-      } catch (err) {
-        console.error("Base Plate CSG failed, falling back to merge", err);
-        let mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
-        if (mergedBase) {
-          mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
-          geometries.push(mergedBase);
-          names.push('Base_Plate');
-          colors.push(basePlateColor.replace('#', ''));
-        }
-      }
-    }
-
-    if (geometries.length > 0) {
-      await exportTo3MF(geometries, names, colors);
-    }
-  };
-
-  const handleExportZIP = async () => {
-    if (!groupRef.current) return;
-    
-    // Ensure world matrices are up to date
-    groupRef.current.updateWorldMatrix(true, true);
-    
-    const geometries: THREE.BufferGeometry[] = [];
-    const names: string[] = [];
-    const baseGeometries: THREE.BufferGeometry[] = [];
-    
-    groupRef.current.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.geometry) {
-        if (child.name.startsWith('Layer_')) {
-          const geom = child.geometry.clone();
-          geom.applyMatrix4(child.matrixWorld);
-          
-          // Ensure manifold geometry
-          let finalGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
-          finalGeom.computeVertexNormals();
-          
-          // Center and ground each piece for individual printing
-          finalGeom.computeBoundingBox();
-          const bbox = finalGeom.boundingBox!;
-          const center = new THREE.Vector3();
-          bbox.getCenter(center);
-          finalGeom.translate(-center.x, -center.y, -bbox.min.z);
-          
-          geometries.push(finalGeom);
-          names.push(child.name);
-        } else if (child.name.startsWith('Base_')) {
-          const geom = child.geometry.clone();
-          geom.applyMatrix4(child.matrixWorld);
-          baseGeometries.push(geom);
-        }
-      }
-    });
-
-    if (baseGeometries.length > 0) {
-      // Use CSG ADDITION for the base plate to ensure it's manifold and has no internal faces
-      try {
-        const evaluator = new Evaluator();
-        evaluator.useGroups = false;
-        
-        let resultBrush = new Brush(baseGeometries[0]);
-        for (let i = 1; i < baseGeometries.length; i++) {
-          const nextBrush = new Brush(baseGeometries[i]);
-          resultBrush = evaluator.evaluate(resultBrush, nextBrush, ADDITION);
-        }
-        
-        let mergedBase = resultBrush.geometry;
-        mergedBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
-        mergedBase.computeVertexNormals();
-        
-        // Center and ground the base plate too
-        mergedBase.computeBoundingBox();
-        const bbox = mergedBase.boundingBox!;
-        const center = new THREE.Vector3();
-        bbox.getCenter(center);
-        mergedBase.translate(-center.x, -center.y, -bbox.min.z);
-        
-        geometries.push(mergedBase);
-        names.push('Base_Plate');
-      } catch (err) {
-        console.error("Base Plate CSG failed in ZIP export, falling back to merge", err);
-        const mergedBase = BufferGeometryUtils.mergeGeometries(baseGeometries, false);
-        if (mergedBase) {
-          let finalBase = BufferGeometryUtils.mergeVertices(mergedBase, 0.1);
-          finalBase.computeVertexNormals();
-          
-          finalBase.computeBoundingBox();
-          const bbox = finalBase.boundingBox!;
-          const center = new THREE.Vector3();
-          bbox.getCenter(center);
-          finalBase.translate(-center.x, -center.y, -bbox.min.z);
-          
-          geometries.push(finalBase);
-          names.push('Base_Plate');
-        }
-      }
-    }
-
-    if (geometries.length > 0) {
-      await exportToZIP(geometries, names);
-    }
-  };
+  const doExportSTL = () => handleExportSTL(groupRef);
+  const doExport3MF = () => handleExport3MF(groupRef, basePlateColor);
+  const doExportZIP = () => handleExportZIP(groupRef);
 
   return (
     <div className="w-full flex-1 min-h-0 relative bg-zinc-900 rounded-xl overflow-hidden shadow-inner border border-zinc-800">
@@ -1248,14 +1032,14 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
         
         <div className="h-px bg-zinc-700 my-1 mx-2" />
         
-        <button onClick={handleExportSTL} className="p-2 hover:bg-emerald-900/40 rounded text-emerald-500 hover:text-emerald-400 transition-colors" title="Exportar Cena (STL Único - Tudo em um objeto. Não recomendado para separar peças)">
-          <Download size={20} />
+        <button onClick={doExport3MF} className="p-2 bg-blue-600 hover:bg-blue-500 rounded text-white transition-colors shadow-md flex items-center justify-center" title="Exportar 3MF (Recomendado para Bambu Studio - Mantém objetos separados e legenda unida)">
+          <FileCode size={20} />
         </button>
-        <button onClick={handleExportZIP} className="p-2 hover:bg-purple-900/40 rounded text-purple-500 hover:text-purple-400 transition-colors" title="Exportar Peças Separadas (ZIP com STLs Individuais)">
+        <button onClick={doExportZIP} className="p-2 hover:bg-purple-900/40 rounded text-purple-500 hover:text-purple-400 transition-colors" title="Exportar Peças Separadas (ZIP com STLs Individuais)">
           <Archive size={20} />
         </button>
-        <button onClick={handleExport3MF} className="p-2 hover:bg-blue-900/40 rounded text-blue-500 hover:text-blue-400 transition-colors" title="Exportar 3MF (Recomendado para Bambu Studio - Mantém objetos separados e legenda unida)">
-          <FileCode size={20} />
+        <button onClick={doExportSTL} className="p-2 hover:bg-emerald-900/40 rounded text-emerald-500 hover:text-emerald-400 transition-colors" title="Exportar Cena (STL Único - Tudo em um objeto. Não recomendado para separar peças)">
+          <Download size={20} />
         </button>
 
         <div className="h-px bg-zinc-700 my-1 mx-2" />
