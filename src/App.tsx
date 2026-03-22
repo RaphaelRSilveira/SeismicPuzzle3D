@@ -2,11 +2,10 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useAppStore, Fault } from './store';
 import { parseFile, createCommonGrid } from './parser';
 import { Viewer } from './Viewer';
-import { LITHOLOGY_LABELS } from './textures';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import JSZip from 'jszip';
 import * as THREE from 'three';
-import { Upload, Download, Settings, Trash2, Layers, Info, Eye, Box, Activity, Save, FolderOpen } from 'lucide-react';
+import { Upload, Download, Settings, Trash2, Layers, Info, Eye, Box, Activity, Save, FolderOpen, AlertTriangle, X } from 'lucide-react';
 
 export default function App() {
   const {
@@ -45,8 +44,6 @@ export default function App() {
     setCropY,
     layerColors,
     setLayerColor,
-    layerTextures,
-    setLayerTexture,
     showWireframe,
     setShowWireframe,
     explodedView,
@@ -107,6 +104,62 @@ export default function App() {
   const [files, setFiles] = useState<File[]>([]);
   const [faultFiles, setFaultFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showThinLineWarning, setShowThinLineWarning] = useState(false);
+  const [thinFeatures, setThinFeatures] = useState<{ name: string; width: number }[]>([]);
+  const [pendingExport, setPendingExport] = useState<(() => void) | null>(null);
+
+  const checkThinLines = (onConfirm: () => void) => {
+    const features: { name: string; width: number }[] = [];
+    
+    // 1. Faults
+    if (showFaults && faults.length > 0) {
+      // Physical diameter ≈ (faultWidth * modelSizeMm) / 2000
+      const faultPhysicalWidth = (faultWidth * modelSizeMm) / 2000;
+      if (faultPhysicalWidth < 0.4) {
+        features.push({ name: 'Linhas de Falha', width: faultPhysicalWidth });
+      }
+    }
+    
+    // 2. Labels
+    if (embossLabels) {
+      // Stroke width is roughly labelSize * 0.15
+      const labelStrokeWidth = labelSize * 0.15;
+      if (labelStrokeWidth < 0.4) {
+        features.push({ name: 'Etiquetas das Peças', width: labelStrokeWidth });
+      }
+    }
+
+    if (features.length > 0) {
+      setThinFeatures(features);
+      setPendingExport(() => onConfirm);
+      setShowThinLineWarning(true);
+    } else {
+      onConfirm();
+    }
+  };
+
+  const autoFixThinLines = () => {
+    // 1. Faults: faultWidth * modelSizeMm / 2000 = 0.4 => faultWidth = 800 / modelSizeMm
+    if (showFaults && faults.length > 0) {
+      const minFaultWidth = 800 / modelSizeMm;
+      if (faultWidth < minFaultWidth) {
+        setFaultWidth(Math.ceil(minFaultWidth));
+      }
+    }
+    
+    // 2. Labels: labelSize * 0.15 = 0.4 => labelSize = 0.4 / 0.15 = 2.67
+    if (embossLabels) {
+      if (labelSize < 2.7) {
+        setLabelSize(2.7);
+      }
+    }
+    
+    setShowThinLineWarning(false);
+    // Use a small timeout to allow state to update before exporting
+    setTimeout(() => {
+      if (pendingExport) pendingExport();
+    }, 100);
+  };
   const [activeTab, setActiveTab] = useState<'surfaces' | 'pieces' | 'faults' | 'settings'>('surfaces');
   const groupRef = useRef<THREE.Group>(null);
 
@@ -346,7 +399,7 @@ export default function App() {
             Gerar Exemplo
           </button>
           <button
-            onClick={exportAllSTLs}
+            onClick={() => checkThinLines(exportAllSTLs)}
             disabled={visibleSurfaces.filter(Boolean).length < 2}
             className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-zinc-200 rounded-md text-sm font-medium transition-colors flex items-center gap-2"
             title="Exportar todas as peças separadas em um arquivo ZIP"
@@ -355,7 +408,7 @@ export default function App() {
             ZIP (Todas Peças)
           </button>
           <button
-            onClick={exportSTL}
+            onClick={() => checkThinLines(exportSTL)}
             disabled={visibleSurfaces.filter(Boolean).length < 2}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition-colors flex items-center gap-2 shadow-md shadow-emerald-900/20"
           >
@@ -456,16 +509,6 @@ export default function App() {
                           </label>
                           
                           <div className="flex items-center gap-2 shrink-0">
-                            <select
-                              value={layerTextures[idx] || 'none'}
-                              onChange={(e) => setLayerTexture(idx, e.target.value)}
-                              className="bg-zinc-800 border border-zinc-700 text-zinc-400 text-[10px] rounded px-1 py-0.5 focus:ring-emerald-500 focus:border-emerald-500 outline-none hover:border-zinc-600 transition-colors"
-                              title="Textura Tátil (3D)"
-                            >
-                              {Object.entries(LITHOLOGY_LABELS).map(([key, label]) => (
-                                <option key={key} value={key}>{label}</option>
-                              ))}
-                            </select>
                             <input 
                               type="color" 
                               value={layerColors[idx] || '#3b82f6'} 
@@ -1098,6 +1141,73 @@ export default function App() {
           )}
         </section>
       </main>
+
+      {/* Thin Line Warning Modal */}
+      {showThinLineWarning && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-500/10 rounded-full flex items-center justify-center text-amber-500">
+                  <AlertTriangle size={24} />
+                </div>
+                <h3 className="text-xl font-bold text-zinc-100">Aviso de Linhas Finas</h3>
+              </div>
+              <button 
+                onClick={() => setShowThinLineWarning(false)}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-zinc-400">
+                Alguns elementos do seu modelo são mais finos que o bico padrão de <span className="text-zinc-200 font-bold">0.4 mm</span> (comum em impressoras como a Bambu Lab). Eles podem desaparecer ou não serem impressos corretamente após o fatiamento.
+              </p>
+              
+              <div className="bg-zinc-950/50 rounded-xl border border-zinc-800 p-4 space-y-3">
+                {thinFeatures.map((feature, idx) => (
+                  <div key={idx} className="flex justify-between items-center">
+                    <span className="text-sm text-zinc-300 font-medium">{feature.name}</span>
+                    <span className="text-xs font-mono text-amber-500 bg-amber-500/10 px-2 py-1 rounded">
+                      {feature.width.toFixed(2)} mm
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Como corrigir:</p>
+                <ul className="text-xs text-zinc-400 space-y-1 list-disc pl-4">
+                  <li>Use o <b>Auto Fix</b> para aumentar a largura para pelo menos 0.4 mm.</li>
+                  <li>Aumente o tamanho total do modelo.</li>
+                  <li>Use um bico menor (ex: 0.2 mm) na sua impressora.</li>
+                  <li>Tente usar o gerador de paredes <b>Arachne</b> no seu fatiador.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="p-6 bg-zinc-950/50 border-t border-zinc-800 flex gap-3">
+              <button 
+                onClick={autoFixThinLines}
+                className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-purple-900/20 flex items-center justify-center gap-2"
+              >
+                Auto Fix
+              </button>
+              <button 
+                onClick={() => {
+                  setShowThinLineWarning(false);
+                  if (pendingExport) pendingExport();
+                }}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-emerald-900/20"
+              >
+                Exportar Assim Mesmo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

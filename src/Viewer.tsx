@@ -4,7 +4,6 @@ import { OrbitControls, Center, Environment, Text3D } from '@react-three/drei';
 import * as THREE from 'three';
 import { useAppStore, Fault } from './store';
 import { createLayerGeometry } from './geometry';
-import { LITHOLOGY_TEXTURES } from './textures';
 import { STLExporter } from 'three/addons/exporters/STLExporter.js';
 import { Box, Square, Download, FileCode, Sun, Activity, Archive, HelpCircle, X, Info, AlertTriangle } from 'lucide-react';
 import { exportTo3MF } from './export3mf';
@@ -191,7 +190,6 @@ function PuzzleLayer({
   isTimeScale,
   averageVelocity,
   color,
-  textureType,
   showWireframe,
   colorMap,
   smoothOptions,
@@ -221,7 +219,6 @@ function PuzzleLayer({
   isTimeScale: boolean;
   averageVelocity: number;
   color: string;
-  textureType?: string | null;
   showWireframe: boolean;
   colorMap: 'none' | 'rainbow' | 'viridis' | 'magma';
   smoothOptions?: { enabled: boolean; iterations: number };
@@ -255,7 +252,6 @@ function PuzzleLayer({
       smoothOptions,
       referenceZ,
       bottomZFixed,
-      textureType || 'none',
       directionUp
     );
 
@@ -292,7 +288,7 @@ function PuzzleLayer({
     }
 
     return geom;
-  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap, textureType, smoothOptions, referenceZ, bottomZFixed, directionUp]);
+  }, [topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, colorMap, smoothOptions, referenceZ, bottomZFixed, directionUp]);
 
   const [font, setFont] = useState<any>(null);
   const [csgGeometry, setCsgGeometry] = useState<THREE.BufferGeometry | null>(null);
@@ -608,11 +604,11 @@ function PuzzleLayer({
         <meshStandardMaterial 
           color={colorMap === 'none' ? color : '#ffffff'} 
           vertexColors={colorMap !== 'none'}
-          roughness={0.8} 
-          metalness={0.0} 
+          roughness={0.7} 
+          metalness={0.05} 
           side={THREE.DoubleSide} 
           wireframe={showWireframe}
-          flatShading={textureType !== 'none'}
+          flatShading={false}
         />
       </mesh>
       {faultTraces}
@@ -621,7 +617,7 @@ function PuzzleLayer({
 }
 
 export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
-  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, layerTextures, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity, faults, faultWidth, showFaults, embossLabels, labelSize, labelThickness } = useAppStore();
+  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity, faults, faultWidth, showFaults, embossLabels, labelSize, labelThickness } = useAppStore();
 
   if (surfaces.length === 0) return null;
 
@@ -764,7 +760,6 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     const isFlatBaseLayer = i === numLayers - 1;
     
     const layerColor = layerColors[i] || '#3b82f6';
-    const textureType = layerTextures[i] || 'none';
     const layerName = isFlatBaseLayer ? `Layer_Base` : `Layer_${i + 1}`;
     
     let labelNumber: number | undefined = undefined;
@@ -780,7 +775,7 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
     layers.push(
       <group key={`layer-group-${i}`} position={[0, 0, explodedOffset]}>
         <PuzzleLayer
-          key={`layer-${i}-${colorMap}-${layerColor}-${textureType}-${labelNumber}-${labelSize}-${labelThickness}-${labelX}-${globalMaxTextSize}`}
+          key={`layer-${i}-${colorMap}-${layerColor}-${labelNumber}-${labelSize}-${labelThickness}-${labelX}-${globalMaxTextSize}`}
           name={layerName}
           labelNumber={labelNumber}
           labelSize={labelSize}
@@ -799,7 +794,6 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           isTimeScale={isTimeScale}
           averageVelocity={averageVelocity}
           color={layerColor}
-          textureType={textureType}
           smoothOptions={{
             enabled: smoothMesh,
             iterations: smoothIterations
@@ -1372,7 +1366,7 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
 
       <Canvas 
         camera={{ position: [150, -150, 150], fov: 45, far: 50000, up: [0, 0, 1] }} 
-        shadows
+        shadows={{ type: THREE.PCFShadowMap }}
         gl={{ antialias: true, toneMappingExposure: 1.0 }}
         style={{ width: '100%', height: '100%' }}
       >

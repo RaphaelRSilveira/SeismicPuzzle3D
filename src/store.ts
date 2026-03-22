@@ -15,7 +15,6 @@ export interface AppState {
   visibleSurfaces: boolean[];
   visibleLayers: boolean[];
   layerColors: string[];
-  layerTextures: string[];
   gridWidth: number;
   gridHeight: number;
   isTimeScale: boolean;
@@ -65,7 +64,6 @@ export interface AppState {
   toggleSurfaceVisibility: (index: number) => void;
   toggleLayerVisibility: (index: number) => void;
   setLayerColor: (index: number, color: string) => void;
-  setLayerTexture: (index: number, texture: string) => void;
   setAverageVelocity: (v: number) => void;
   setVerticalExaggeration: (v: number) => void;
   setClearance: (c: number) => void;
@@ -112,7 +110,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   visibleSurfaces: [],
   visibleLayers: [],
   layerColors: [],
-  layerTextures: [],
   gridWidth: 0,
   gridHeight: 0,
   isTimeScale: false,
@@ -168,7 +165,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       visibleSurfaces: new Array(surfaces.length).fill(true), 
       visibleLayers: new Array(numLayers).fill(true),
       layerColors: colors,
-      layerTextures: new Array(numLayers).fill('none'),
       gridWidth, 
       gridHeight, 
       isTimeScale, 
@@ -216,12 +212,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const newColors = [...state.layerColors];
     newColors[index] = color;
     return { layerColors: newColors };
-  }),
-
-  setLayerTexture: (index, texture) => set((state) => {
-    const newTextures = [...state.layerTextures];
-    newTextures[index] = texture;
-    return { layerTextures: newTextures };
   }),
 
   setAverageVelocity: (averageVelocity) => set({ averageVelocity }),

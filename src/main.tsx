@@ -3,6 +3,16 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
 
+// Suppress known Three.js deprecation warnings from upstream libraries (like @react-three/fiber)
+const originalWarn = console.warn;
+console.warn = (...args) => {
+  if (typeof args[0] === 'string') {
+    if (args[0].includes('THREE.Clock: This module has been deprecated')) return;
+    if (args[0].includes('THREE.WebGLShadowMap: PCFSoftShadowMap has been deprecated')) return;
+  }
+  originalWarn(...args);
+};
+
 console.log(
   "%c SeismicPuzzle3D %c Developed by Raphael da Rocha Silveira %c © 2026 All Rights Reserved ",
   "background: #10b981; color: #fff; font-weight: bold; padding: 4px 8px; border-radius: 4px 0 0 4px;",

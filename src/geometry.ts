@@ -15,7 +15,6 @@ export function createLayerGeometry(
   smoothOptions?: { enabled: boolean; iterations: number },
   referenceZ?: number,
   bottomZFixed?: number,
-  textureType?: string,
   directionUp: number = -1
 ) {
   const vertices = [];
@@ -33,40 +32,6 @@ export function createLayerGeometry(
     }
     return val * directionUp;
   };
-
-  function getTactileDisplacement(x: number, y: number, z: number, type?: string): THREE.Vector3 {
-    if (!type || type === 'none') return new THREE.Vector3(0, 0, 0);
-    
-    // Use normalized-ish coordinates for consistent pattern scale
-    const nx = x * 0.8;
-    const ny = y * 0.8;
-    // Use a relative Z to keep pattern consistent across layers
-    const nz = (z - (referenceZ || 0)) * 0.5;
-
-    const amp = 2.5; 
-
-    if (type === 'rough') {
-      const noise = (Math.sin(nx * 1.5) * Math.cos(ny * 1.5) * Math.sin(nz * 1.5));
-      return new THREE.Vector3(noise * amp * 0.5, noise * amp * 0.5, noise * amp * 0.5);
-    }
-    if (type === 'dotted') {
-      const dot = Math.sin(nx) * Math.sin(ny) * Math.sin(nz);
-      const val = dot > 0.3 ? amp : 0;
-      return new THREE.Vector3(val * 0.4, val * 0.4, val * 0.8);
-    }
-    if (type === 'striped') {
-      const val = Math.sin(nx + ny + nz) * amp;
-      return new THREE.Vector3(val * 0.5, val * 0.5, val * 0.5);
-    }
-    if (type === 'grid') {
-      const gX = Math.sin(nx);
-      const gY = Math.sin(ny);
-      const gZ = Math.sin(nz);
-      const val = (Math.abs(gX) > 0.8 || Math.abs(gY) > 0.8 || Math.abs(gZ) > 0.8) ? amp * 0.6 : 0;
-      return new THREE.Vector3(val * 0.4, val * 0.4, val * 0.4);
-    }
-    return new THREE.Vector3(0, 0, 0);
-  }
 
   function smoothSurface(points: THREE.Vector3[], width: number, height: number, iterations: number) {
     let currentPoints = points.map(p => p.clone());
@@ -110,8 +75,7 @@ export function createLayerGeometry(
       const idx = y * gridWidth + x;
       const p = finalPointsTop[idx];
       const rawZ = convertZ(p.z) - sign * clearanceTop;
-      const disp = getTactileDisplacement(x, y, rawZ, textureType);
-      vertices.push(p.x + disp.x, p.y + disp.y, rawZ + disp.z);
+      vertices.push(p.x, p.y, rawZ);
       uvs.push(x / (gridWidth - 1), y / (gridHeight - 1));
     }
   }
@@ -123,8 +87,7 @@ export function createLayerGeometry(
       const idx = y * gridWidth + x;
       const p = finalPointsBottom[idx];
       const rawZ = bottomZFixed !== undefined ? bottomZFixed : convertZ(p.z) + sign * clearanceBottom;
-      const disp = bottomZFixed !== undefined ? new THREE.Vector3(0, 0, 0) : getTactileDisplacement(x, y, rawZ, textureType);
-      vertices.push(p.x + disp.x, p.y + disp.y, rawZ + disp.z);
+      vertices.push(p.x, p.y, rawZ);
       uvs.push(x / (gridWidth - 1), y / (gridHeight - 1));
     }
   }
@@ -154,7 +117,7 @@ export function createLayerGeometry(
   }
 
   // Side walls with vertical subdivision
-  const wallSubdivisions = textureType !== 'none' ? 4 : 1;
+  const wallSubdivisions = 1;
   
   const addWall = (p1Top: THREE.Vector3, p2Top: THREE.Vector3, p1Bottom: THREE.Vector3, p2Bottom: THREE.Vector3, x1: number, y1: number, x2: number, y2: number) => {
     const wallStartIdx = vertices.length / 3;
@@ -174,9 +137,7 @@ export function createLayerGeometry(
         const rawX = pTop.x * (1 - t) + pBottom.x * t;
         const rawY = pTop.y * (1 - t) + pBottom.y * t;
         
-        const disp = (bottomZFixed !== undefined && t === 1) ? new THREE.Vector3(0, 0, 0) : getTactileDisplacement(curX, curY, rawZ, textureType);
-        
-        vertices.push(rawX + disp.x, rawY + disp.y, rawZ + disp.z);
+        vertices.push(rawX, rawY, rawZ);
         uvs.push(i, t);
       }
     }
@@ -216,8 +177,8 @@ export function createLayerGeometry(
   geometry.setIndex(indices);
   
   // Merge vertices to ensure the mesh is manifold (watertight)
-  // Use a slightly larger tolerance to handle potential floating point noise in large raw units
-  geometry = BufferGeometryUtils.mergeVertices(geometry, 0.1);
+  // Use a smaller tolerance to avoid merging distinct features but enough to close gaps
+  geometry = BufferGeometryUtils.mergeVertices(geometry, 0.01);
   
   geometry.computeVertexNormals();
 
