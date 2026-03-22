@@ -135,7 +135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   smoothMesh: false,
   smoothIterations: 1,
   showBasePlate: false,
-  basePlateTitle: 'SeismicPuzzle3D',
+  basePlateTitle: 'Seismic Puzzle 3D',
   basePlateSubtitle: 'Escala: 1:1000',
   basePlateColor: '#27272a',
   basePlatePadding: 20,
