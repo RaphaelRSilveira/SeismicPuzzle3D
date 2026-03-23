@@ -2,10 +2,10 @@ import React, { useMemo, useRef, useState, useEffect, Component, ErrorInfo, Reac
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Center, Environment, Text3D } from '@react-three/drei';
 import * as THREE from 'three';
-import { useAppStore, Fault } from './store';
+import { useAppStore } from './store';
 import { createLayerGeometry } from './geometry';
 import { handleExportSTL, handleExportZIP, handleExport3MF } from './exportUtils';
-import { Box, Square, Download, FileCode, Sun, Activity, Archive, HelpCircle, X, Info, AlertTriangle } from 'lucide-react';
+import { Box, Square, Download, FileCode, Sun, Archive, HelpCircle, X, Info, AlertTriangle } from 'lucide-react';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 import { Evaluator, Brush, SUBTRACTION, ADDITION } from 'three-bvh-csg';
@@ -199,9 +199,6 @@ function PuzzleLayer({
   bottomZFixed,
   directionUp,
   name,
-  faults,
-  faultWidth,
-  showFaults,
   embossLabels,
   labelNumber,
   labelSize,
@@ -228,9 +225,6 @@ function PuzzleLayer({
   bottomZFixed?: number;
   directionUp: number;
   name?: string;
-  faults: Fault[];
-  faultWidth: number;
-  showFaults: boolean;
   embossLabels: boolean;
   labelNumber?: number;
   labelSize?: number;
@@ -457,149 +451,6 @@ function PuzzleLayer({
 
   const finalGeometry = csgGeometry || geometry;
 
-  const faultTraces = useMemo(() => {
-    if (!showFaults || !faults || faults.length === 0) return null;
-
-    const minX = topSurface[0].x;
-    const maxX = topSurface[gridWidth - 1].x;
-    const minY = topSurface[0].y;
-    const maxY = topSurface[topSurface.length - 1].y;
-    const dataMaxDim = Math.max(maxX - minX, maxY - minY);
-
-    const traces: React.ReactNode[] = [];
-    // Thin tube radius for "drawn line" look (exportable)
-    const tubeRadius = Math.max(0.15, (faultWidth / 1000) * dataMaxDim * 0.25);
-
-    faults.forEach((fault) => {
-      if (!fault.visible || fault.points.length < 2) return;
-
-      // Subdivide for smooth surface following
-      const subPoints = subdividePoints(fault.points, 1.0);
-      
-      // Clip the polyline to the bounding box
-      const clippedSegments: THREE.Vector3[][] = [];
-      let currentSegment: THREE.Vector3[] = [];
-      const boundaryPoints: THREE.Vector3[] = []; // Points exactly on the boundary
-
-      for (let i = 0; i < subPoints.length - 1; i++) {
-        const p1 = subPoints[i];
-        const p2 = subPoints[i + 1];
-        const clipped = clipSegmentToBox(p1, p2, minX, maxX, minY, maxY);
-        
-        if (clipped.length === 2) {
-          if (currentSegment.length === 0) {
-            currentSegment.push(clipped[0]);
-          } else {
-            // Check if connected
-            const lastPoint = currentSegment[currentSegment.length - 1];
-            if (lastPoint.distanceTo(clipped[0]) > 0.001) {
-              clippedSegments.push([...currentSegment]);
-              currentSegment = [clipped[0]];
-            }
-          }
-          currentSegment.push(clipped[1]);
-        }
-      }
-      if (currentSegment.length > 0) {
-        clippedSegments.push(currentSegment);
-      }
-
-      // Find boundary points from the clipped segments
-      clippedSegments.forEach(segment => {
-        const first = segment[0];
-        const last = segment[segment.length - 1];
-        
-        const isFirstOnBoundary = Math.abs(first.x - minX) < 0.001 || Math.abs(first.x - maxX) < 0.001 || 
-                                  Math.abs(first.y - minY) < 0.001 || Math.abs(first.y - maxY) < 0.001;
-        const isLastOnBoundary = Math.abs(last.x - minX) < 0.001 || Math.abs(last.x - maxX) < 0.001 || 
-                                 Math.abs(last.y - minY) < 0.001 || Math.abs(last.y - maxY) < 0.001;
-                                 
-        if (isFirstOnBoundary && !boundaryPoints.some(bp => bp.distanceTo(first) < 0.001)) {
-          boundaryPoints.push(first);
-        }
-        if (isLastOnBoundary && !boundaryPoints.some(bp => bp.distanceTo(last) < 0.001)) {
-          boundaryPoints.push(last);
-        }
-      });
-
-      // 1. Top Surface Trace
-      clippedSegments.forEach((segment, segIdx) => {
-        const topPoints: THREE.Vector3[] = [];
-        segment.forEach(p => {
-          const sz = getSurfaceZAt(p.x, p.y, topSurface, gridWidth, gridHeight);
-          const z = convertZValue(sz, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
-          topPoints.push(new THREE.Vector3(p.x, p.y, z + 0.1));
-        });
-
-        if (topPoints.length >= 2) {
-          const curve = new THREE.CatmullRomCurve3(topPoints);
-          traces.push(
-            <mesh key={`fault-top-${fault.id}-${segIdx}`} castShadow receiveShadow name={`Fault_${fault.id}`}>
-              <tubeGeometry args={[curve, Math.max(2, topPoints.length), tubeRadius, 6, false]} />
-              <meshStandardMaterial color={fault.color} polygonOffset polygonOffsetFactor={-1} />
-            </mesh>
-          );
-        }
-      });
-
-      // 2. Bottom Surface Trace
-      clippedSegments.forEach((segment, segIdx) => {
-        const bottomPoints: THREE.Vector3[] = [];
-        segment.forEach(p => {
-          const sz = getSurfaceZAt(p.x, p.y, bottomSurface, gridWidth, gridHeight);
-          const z = bottomZFixed !== undefined ? bottomZFixed : convertZValue(sz, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
-          bottomPoints.push(new THREE.Vector3(p.x, p.y, z - 0.1));
-        });
-
-        if (bottomPoints.length >= 2) {
-          const curve = new THREE.CatmullRomCurve3(bottomPoints);
-          traces.push(
-            <mesh key={`fault-bottom-${fault.id}-${segIdx}`} castShadow receiveShadow name={`Fault_${fault.id}`}>
-              <tubeGeometry args={[curve, Math.max(2, bottomPoints.length), tubeRadius, 6, false]} />
-              <meshStandardMaterial color={fault.color} polygonOffset polygonOffsetFactor={-1} />
-            </mesh>
-          );
-        }
-      });
-
-      // 3. Wall Traces (Vertical lines at boundary intersections)
-      boundaryPoints.forEach((bp, bpIdx) => {
-        const szTop = getSurfaceZAt(bp.x, bp.y, topSurface, gridWidth, gridHeight);
-        const szBottom = getSurfaceZAt(bp.x, bp.y, bottomSurface, gridWidth, gridHeight);
-        
-        const zTop = convertZValue(szTop, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) - clearanceTop;
-        const zBottom = bottomZFixed !== undefined ? bottomZFixed : convertZValue(szBottom, isTimeScale, averageVelocity, exaggeration, directionUp, referenceZ) + clearanceBottom;
-        
-        // We no longer check if the fault's Z is within this specific layer's Z range.
-        // If a fault stick intersects the X/Y boundary of the model, we assume it's a 
-        // vertical/sub-vertical plane that cuts through all layers at that X/Y coordinate.
-        // This ensures the fault trace is visible on the walls of all pieces it passes through.
-        
-        // Offset slightly outward based on which wall it's on to avoid z-fighting
-        let ox = 0, oy = 0;
-        if (Math.abs(bp.x - minX) < 0.001) ox = -0.1;
-        else if (Math.abs(bp.x - maxX) < 0.001) ox = 0.1;
-        if (Math.abs(bp.y - minY) < 0.001) oy = -0.1;
-        else if (Math.abs(bp.y - maxY) < 0.001) oy = 0.1;
-
-        const wallPoints = [
-          new THREE.Vector3(bp.x + ox, bp.y + oy, zTop),
-          new THREE.Vector3(bp.x + ox, bp.y + oy, zBottom)
-        ];
-
-        const curve = new THREE.CatmullRomCurve3(wallPoints);
-        traces.push(
-          <mesh key={`fault-wall-v-${fault.id}-${bpIdx}`} castShadow receiveShadow name={`Fault_${fault.id}`}>
-            <tubeGeometry args={[curve, 2, tubeRadius, 6, false]} />
-            <meshStandardMaterial color={fault.color} polygonOffset polygonOffsetFactor={-1} />
-          </mesh>
-        );
-      });
-    });
-
-    return traces;
-  }, [faults, faultWidth, showFaults, topSurface, bottomSurface, gridWidth, gridHeight, clearanceTop, clearanceBottom, exaggeration, isTimeScale, averageVelocity, directionUp, referenceZ, bottomZFixed]);
-
   return (
     <group>
       <mesh geometry={finalGeometry} castShadow receiveShadow name={name}>
@@ -613,14 +464,12 @@ function PuzzleLayer({
           flatShading={false}
         />
       </mesh>
-      {faultTraces}
     </group>
   );
 }
 
-export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) {
-  const { t } = useTranslation();
-  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity, faults, faultWidth, showFaults, embossLabels, labelSize, labelThickness } = useAppStore();
+export function Scene({ groupRef, t }: { groupRef: React.RefObject<THREE.Group>, t: any }) {
+  const { surfaces, surfaceNames, visibleSurfaces, visibleLayers, layerColors, gridWidth, gridHeight, isTimeScale, averageVelocity, verticalExaggeration, clearance, rotationX, rotationY, rotationZ, modelSizeMm, forceSquare, baseThicknessMm, cropXMin, cropXMax, cropYMin, cropYMax, showWireframe, explodedView, colorMap, smoothMesh, smoothIterations, showBasePlate, basePlateTitle, basePlateSubtitle, basePlateColor, basePlatePadding, basePlateThicknessMm, basePlateTextRelief, basePieceName, lightingIntensity, embossLabels, labelSize, labelThickness } = useAppStore();
 
   if (surfaces.length === 0) return null;
 
@@ -806,9 +655,6 @@ export function Scene({ groupRef }: { groupRef: React.RefObject<THREE.Group> }) 
           referenceZ={exaggerationRefZ}
           bottomZFixed={isFlatBaseLayer ? bottomZFixedValue : undefined}
           directionUp={directionUp}
-          faults={faults}
-          faultWidth={faultWidth}
-          showFaults={showFaults}
           embossLabels={embossLabels}
         />
       </group>
@@ -1196,7 +1042,7 @@ const ViewerInternal = ({ groupRef }: { groupRef: React.RefObject<THREE.Group> }
         />
         
         <React.Suspense fallback={null}>
-          <Scene key={`scene-${surfaces.length}-${lastUpdate}`} groupRef={groupRef} />
+          <Scene key={`scene-${surfaces.length}-${lastUpdate}`} groupRef={groupRef} t={t} />
         </React.Suspense>
         
         <CameraController viewTrigger={viewTrigger} viewType={viewType} />

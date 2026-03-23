@@ -1,6 +1,19 @@
 import JSZip from 'jszip';
 import * as THREE from 'three';
 
+function escapeXml(unsafe: string) {
+  return unsafe.replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
+
 /**
  * Exports multiple geometries to a single 3MF file.
  * 3MF is a modern 3D printing format that supports multiple objects, 
@@ -14,18 +27,18 @@ export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: str
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>
-</Types>`);
+</Types>`.trim());
 
   // 2. _rels/.rels
   zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>
-</Relationships>`);
+</Relationships>`.trim());
 
   // 3. 3D/3dmodel.model
   const modelParts: string[] = [];
   modelParts.push(`<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">
   <metadata name="Title">Seismic Puzzle 3D</metadata>
   <metadata name="Description">Exported from Seismic Puzzle 3D Viewer</metadata>
   <resources>`);
@@ -43,17 +56,20 @@ export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: str
   let globalMinZ = Infinity;
   geometries.forEach(geom => {
     const pos = geom.getAttribute('position');
+    if (!pos) return;
     for (let i = 0; i < pos.count; i++) {
       const z = pos.getZ(i);
-      if (z < globalMinZ) globalMinZ = z;
+      if (!isNaN(z) && isFinite(z) && z < globalMinZ) globalMinZ = z;
     }
   });
 
   if (globalMinZ === Infinity) globalMinZ = 0;
 
   geometries.forEach((geom, index) => {
-    const name = names[index] || `Object ${index + 1}`;
+    const name = escapeXml(names[index] || `Object ${index + 1}`);
     const position = geom.getAttribute('position');
+    if (!position) return;
+
     const indexAttr = geom.getIndex();
     const objectId = index + 2;
     const materialId = 1;
@@ -67,10 +83,16 @@ export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: str
     // Vertices
     const vertices: string[] = [];
     for (let i = 0; i < position.count; i++) {
-      const x = position.getX(i).toFixed(4);
-      const y = position.getY(i).toFixed(4);
-      const z = (position.getZ(i) - globalMinZ).toFixed(4);
-      vertices.push(`          <vertex x="${x}" y="${y}" z="${z}" />`);
+      let x = position.getX(i);
+      let y = position.getY(i);
+      let z = position.getZ(i) - globalMinZ;
+      
+      // Sanitize
+      if (isNaN(x) || !isFinite(x)) x = 0;
+      if (isNaN(y) || !isFinite(y)) y = 0;
+      if (isNaN(z) || !isFinite(z)) z = 0;
+
+      vertices.push(`          <vertex x="${x.toFixed(4)}" y="${y.toFixed(4)}" z="${z.toFixed(4)}" />`);
     }
     modelParts.push(vertices.join('\n'));
 
@@ -84,11 +106,17 @@ export async function exportTo3MF(geometries: THREE.BufferGeometry[], names: str
         const v1 = Math.round(indexAttr.array[i]);
         const v2 = Math.round(indexAttr.array[i + 1]);
         const v3 = Math.round(indexAttr.array[i + 2]);
-        triangles.push(`          <triangle v1="${v1}" v2="${v2}" v3="${v3}" pid="${materialId}" p1="${materialIndex}" />`);
+        
+        // Basic bounds check
+        if (v1 < position.count && v2 < position.count && v3 < position.count) {
+          triangles.push(`          <triangle v1="${v1}" v2="${v2}" v3="${v3}" pid="${materialId}" p1="${materialIndex}" />`);
+        }
       }
     } else {
       for (let i = 0; i < position.count; i += 3) {
-        triangles.push(`          <triangle v1="${i}" v2="${i + 1}" v3="${i + 2}" pid="${materialId}" p1="${materialIndex}" />`);
+        if (i + 2 < position.count) {
+          triangles.push(`          <triangle v1="${i}" v2="${i + 1}" v3="${i + 2}" pid="${materialId}" p1="${materialIndex}" />`);
+        }
       }
     }
     modelParts.push(triangles.join('\n'));

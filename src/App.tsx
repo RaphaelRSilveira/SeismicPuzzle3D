@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAppStore, Fault } from './store';
+import { useAppStore } from './store';
+import { LanguageSelector } from './components/LanguageSelector';
 import { parseFile, createCommonGrid } from './parser';
 import { Viewer } from './Viewer';
 import { handleExportSTL, handleExportZIP, handleExport3MF } from './exportUtils';
@@ -83,14 +84,6 @@ export default function App() {
     setScaleMode,
     metersPerCm,
     setMetersPerCm,
-    faults,
-    faultWidth,
-    showFaults,
-    setFaults,
-    setFaultColor,
-    toggleFaultVisibility,
-    setFaultWidth,
-    setShowFaults,
     generateExample,
     clear,
     exportProject,
@@ -113,7 +106,6 @@ export default function App() {
   }, []);
 
   const [files, setFiles] = useState<File[]>([]);
-  const [faultFiles, setFaultFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [showThinLineWarning, setShowThinLineWarning] = useState(false);
   const [thinFeatures, setThinFeatures] = useState<{ name: string; width: number }[]>([]);
@@ -122,16 +114,7 @@ export default function App() {
   const checkThinLines = (onConfirm: () => void) => {
     const features: { name: string; width: number }[] = [];
     
-    // 1. Faults
-    if (showFaults && faults.length > 0) {
-      // Physical diameter ≈ (faultWidth * modelSizeMm) / 2000
-      const faultPhysicalWidth = (faultWidth * modelSizeMm) / 2000;
-      if (faultPhysicalWidth < 0.4) {
-        features.push({ name: t('app.faultLines'), width: faultPhysicalWidth });
-      }
-    }
-    
-    // 2. Labels
+    // 1. Labels
     if (embossLabels) {
       // Stroke width is roughly labelSize * 0.15
       const labelStrokeWidth = labelSize * 0.15;
@@ -150,15 +133,7 @@ export default function App() {
   };
 
   const autoFixThinLines = () => {
-    // 1. Faults: faultWidth * modelSizeMm / 2000 = 0.4 => faultWidth = 800 / modelSizeMm
-    if (showFaults && faults.length > 0) {
-      const minFaultWidth = 800 / modelSizeMm;
-      if (faultWidth < minFaultWidth) {
-        setFaultWidth(Math.ceil(minFaultWidth));
-      }
-    }
-    
-    // 2. Labels: labelSize * 0.15 = 0.4 => labelSize = 0.4 / 0.15 = 2.67
+    // 1. Labels: labelSize * 0.15 = 0.4 => labelSize = 0.4 / 0.15 = 2.67
     if (embossLabels) {
       if (labelSize < 2.7) {
         setLabelSize(2.7);
@@ -171,7 +146,6 @@ export default function App() {
       if (pendingExport) pendingExport();
     }, 100);
   };
-  const [activeTab, setActiveTab] = useState<'surfaces' | 'pieces' | 'faults' | 'settings'>('surfaces');
   const groupRef = useRef<THREE.Group>(null);
 
   const handleSaveProject = () => {
@@ -274,62 +248,6 @@ export default function App() {
     if (groupRef.current) handleExport3MF(groupRef, useAppStore.getState().basePlateColor);
   };
 
-  const handleFaultUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return;
-    const newFiles = Array.from(e.target.files);
-    setFaultFiles(prev => [...prev, ...newFiles]);
-    
-    const newFaults: Fault[] = [];
-    const defaultColors = ['#ef4444', '#f97316', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
-    
-    for (const file of newFiles) {
-      const text = await file.text();
-      const lines = text.split('\n');
-      let currentStick: THREE.Vector3[] = [];
-      let stickCount = 0;
-      
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!')) {
-          if (currentStick.length >= 2) {
-            stickCount++;
-            newFaults.push({
-              id: `${file.name}-${stickCount}-${Date.now()}`,
-              name: `${file.name.split('.')[0]} ${stickCount}`,
-              points: currentStick,
-              color: defaultColors[(faults.length + newFaults.length) % defaultColors.length],
-              visible: true
-            });
-          }
-          currentStick = [];
-          continue;
-        }
-        
-        const p = trimmed.split(/[\s,;]+/);
-        if (p.length >= 3) {
-          const x = parseFloat(p[0]), y = parseFloat(p[1]), z = parseFloat(p[2]);
-          if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
-            currentStick.push(new THREE.Vector3(x, y, z));
-          }
-        }
-      }
-      if (currentStick.length >= 2) {
-        stickCount++;
-        newFaults.push({
-          id: `${file.name}-${stickCount}-${Date.now()}`,
-          name: `${file.name.split('.')[0]} ${stickCount}`,
-          points: currentStick,
-          color: defaultColors[(faults.length + newFaults.length) % defaultColors.length],
-          visible: true
-        });
-      }
-    }
-    
-    if (newFaults.length > 0) {
-      setFaults([...faults, ...newFaults]);
-    }
-  };
-
   return (
     <div className={`h-screen w-screen overflow-hidden ${theme === 'dark' ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'} flex flex-col font-sans`}>
       {/* Header */}
@@ -355,17 +273,7 @@ export default function App() {
           >
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <select 
-            value={i18n.language} 
-            onChange={(e) => i18n.changeLanguage(e.target.value)}
-            className={`text-xs rounded border px-2 py-1 mr-2 outline-none focus:border-emerald-500 transition-colors ${theme === 'dark' ? 'bg-zinc-800 text-zinc-300 border-zinc-700' : 'bg-white text-zinc-700 border-zinc-200'}`}
-          >
-            <option value="en">🇺🇸 English</option>
-            <option value="pt-BR">🇧🇷 Português</option>
-            <option value="es">🇪🇸 Español</option>
-            <option value="fr">🇫🇷 Français</option>
-            <option value="it">🇮🇹 Italiano</option>
-          </select>
+          <LanguageSelector />
           <button
             onClick={handleSaveProject}
             disabled={surfaces.length === 0}
@@ -447,7 +355,7 @@ export default function App() {
               <div className={`rounded-lg p-4 border ${theme === 'dark' ? 'bg-zinc-800/80 border-zinc-700/50' : 'bg-white border-zinc-200 shadow-sm'}`}>
                 <div className="flex justify-between items-center mb-3">
                   <span className={`text-sm font-medium ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'}`}>{surfaces.length} Superfícies</span>
-                  <button onClick={() => { setFiles([]); setFaultFiles([]); clear(); }} className="text-zinc-500 hover:text-red-400 transition-colors">
+                  <button onClick={() => { setFiles([]); clear(); }} className="text-zinc-500 hover:text-red-400 transition-colors">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -545,82 +453,6 @@ export default function App() {
                 <p className={`text-[10px] mt-3 italic ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
                   {t('app.piecesDesc')}
                 </p>
-              </div>
-            )}
-          </section>
-
-          {/* Faults Input */}
-          <section className="flex flex-col gap-4">
-            <h2 className={`text-sm font-semibold uppercase tracking-wider flex items-center gap-2 ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
-              <Activity size={16} />
-              {t('app.faults')}
-            </h2>
-            
-            <label className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-xl cursor-pointer transition-all ${theme === 'dark' ? 'border-zinc-700 bg-zinc-800/50 hover:bg-zinc-800 hover:border-red-500/50' : 'border-zinc-300 bg-zinc-100/50 hover:bg-zinc-100 hover:border-red-500/50'}`}>
-              <div className="flex flex-col items-center justify-center pt-3 pb-3 text-center px-2">
-                <Activity className={`w-6 h-6 mb-2 ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`} />
-                <p className={`text-xs ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-600'}`}>{t('app.dropFaults')}</p>
-                <p className="text-[10px] text-zinc-500">.grs, .txt, .xyz, .dat</p>
-              </div>
-              <input type="file" multiple accept=".grs,.txt,.xyz,.dat" className="hidden" onChange={handleFaultUpload} />
-            </label>
-
-            {faults.length > 0 && (
-              <div className={`rounded-lg p-4 border ${theme === 'dark' ? 'bg-zinc-800/80 border-zinc-700/50' : 'bg-white border-zinc-200 shadow-sm'}`}>
-                <div className="flex justify-between items-center mb-3">
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="checkbox" 
-                      checked={showFaults} 
-                      onChange={(e) => setShowFaults(e.target.checked)}
-                      className={`rounded focus:ring-red-500/50 ${theme === 'dark' ? 'border-zinc-600 bg-zinc-700 text-red-500' : 'border-zinc-300 bg-white text-red-600'}`}
-                    />
-                    <span className={`text-sm font-medium ${theme === 'dark' ? 'text-zinc-300' : 'text-zinc-700'}`}>{faults.length} Falhas</span>
-                  </div>
-                  <button onClick={() => { setFaultFiles([]); setFaults([]); }} className="text-zinc-500 hover:text-red-400 transition-colors">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
-                    {faults.map((fault, idx) => (
-                      <div key={fault.id} className={`flex items-center justify-between gap-2 p-1.5 rounded border group ${theme === 'dark' ? 'bg-zinc-900/40 border-zinc-700/30' : 'bg-zinc-50 border-zinc-200'}`}>
-                        <label className={`flex items-center gap-2 text-[11px] cursor-pointer transition-colors flex-1 min-w-0 ${theme === 'dark' ? 'text-zinc-300 hover:text-zinc-100' : 'text-zinc-700 hover:text-zinc-900'}`}>
-                          <input 
-                            type="checkbox" 
-                            checked={fault.visible} 
-                            onChange={() => toggleFaultVisibility(idx)}
-                            className={`rounded focus:ring-red-500/50 ${theme === 'dark' ? 'border-zinc-600 bg-zinc-700 text-red-500' : 'border-zinc-300 bg-white text-red-600'}`}
-                          />
-                          <span className="truncate" title={fault.name}>{fault.name}</span>
-                        </label>
-                        <input 
-                          type="color" 
-                          value={fault.color} 
-                          onChange={(e) => setFaultColor(idx, e.target.value)}
-                          className="w-4 h-4 rounded-full overflow-hidden border border-zinc-700 p-0 cursor-pointer bg-transparent hover:scale-110 transition-transform"
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className={`flex flex-col gap-2 pt-2 border-t ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'}`}>
-                    <label className={`text-[10px] uppercase tracking-wider flex justify-between ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                      Espessura Global
-                      <span className={theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}>{faultWidth}</span>
-                    </label>
-                    <input 
-                      type="range" 
-                      min="1" 
-                      max="10" 
-                      step="1" 
-                      value={faultWidth} 
-                      onChange={(e) => setFaultWidth(Number(e.target.value))}
-                      className={`w-full accent-red-500 ${theme === 'light' ? 'opacity-80' : ''}`}
-                    />
-                  </div>
-                </div>
               </div>
             )}
           </section>
@@ -816,7 +648,7 @@ export default function App() {
                       className={`w-full accent-emerald-500 ${theme === 'light' ? 'opacity-80' : ''}`}
                     />
                     <p className={`text-[10px] italic ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                      Reduz ruído e suaviza ângulos bruscos na geometria.
+                      {t('app.smoothDesc')}
                     </p>
                   </div>
                 )}
@@ -824,11 +656,11 @@ export default function App() {
             </div>
 
             <div className={`pt-4 border-t flex flex-col gap-4 ${theme === 'dark' ? 'border-zinc-800' : 'border-zinc-200'}`}>
-              <h3 className={`text-xs font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>Recorte (Cropping)</h3>
+              <h3 className={`text-xs font-semibold uppercase tracking-wider ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>{t('app.cropping')}</h3>
               
               <div className="flex flex-col gap-2">
                 <label className={`text-xs flex justify-between ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                  Eixo X (Largura)
+                  {t('app.xAxisLabel')}
                   <span className={`font-mono ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>{cropXMin}% - {cropXMax}%</span>
                 </label>
                 <div className="flex items-center gap-2">
@@ -847,7 +679,7 @@ export default function App() {
 
               <div className="flex flex-col gap-2">
                 <label className={`text-xs flex justify-between ${theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                  Eixo Y (Profundidade)
+                  {t('app.yAxisLabel')}
                   <span className={`font-mono ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>{cropYMin}% - {cropYMax}%</span>
                 </label>
                 <div className="flex items-center gap-2">
@@ -883,7 +715,7 @@ export default function App() {
                   className={`w-full accent-emerald-500 ${theme === 'light' ? 'opacity-80' : ''}`}
                 />
                 <p className={`text-[10px] italic ${theme === 'dark' ? 'text-zinc-500' : 'text-zinc-400'}`}>
-                  * A base plana é obrigatória para garantir a estabilidade do modelo.
+                  {t('app.baseThicknessDesc')}
                 </p>
               </div>
 
@@ -906,7 +738,7 @@ export default function App() {
                       value={basePlateTitle || ''}
                       onChange={(e) => setBasePlateTitle(e.target.value)}
                       className={`border text-xs rounded focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2 ${theme === 'dark' ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-white border-zinc-300 text-zinc-900'}`}
-                      placeholder="Ex: Bacia de Campos"
+                      placeholder={t('app.plateTitlePlaceholder')}
                     />
                   </div>
                   <div className="flex flex-col gap-2">
@@ -916,7 +748,7 @@ export default function App() {
                       value={basePlateSubtitle || ''}
                       onChange={(e) => setBasePlateSubtitle(e.target.value)}
                       className={`border text-xs rounded focus:ring-emerald-500 focus:border-emerald-500 block w-full p-2 ${theme === 'dark' ? 'bg-zinc-800 border-zinc-700 text-zinc-300' : 'bg-white border-zinc-300 text-zinc-900'}`}
-                      placeholder="Ex: Escala 1:1000"
+                      placeholder={t('app.plateSubtitlePlaceholder')}
                     />
                   </div>
                   <div className="flex flex-col gap-2">

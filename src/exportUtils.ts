@@ -114,7 +114,7 @@ export const handleExport3MF = async (groupRef: React.RefObject<THREE.Group>, ba
         geom.applyMatrix4(child.matrixWorld);
         
         // Ensure manifold geometry
-        const mergedGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
+        const mergedGeom = BufferGeometryUtils.mergeVertices(geom, 0.01);
         mergedGeom.computeVertexNormals();
         
         geometries.push(mergedGeom);
@@ -126,11 +126,16 @@ export const handleExport3MF = async (groupRef: React.RefObject<THREE.Group>, ba
         } else {
           colors.push('ffffff');
         }
-      } else if (child.name.startsWith('Base_') || child.name.startsWith('Texto_') || child.name.startsWith('Legenda_')) {
+      } else if (
+        child.name.startsWith('Base_') || 
+        child.name.startsWith('Texto_') || 
+        child.name.startsWith('Legenda') || 
+        child.name.startsWith('Legend')
+      ) {
         const geom = child.geometry.clone();
         geom.applyMatrix4(child.matrixWorld);
         
-        const mergedGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
+        const mergedGeom = BufferGeometryUtils.mergeVertices(geom, 0.01);
         mergedGeom.computeVertexNormals();
         
         geometries.push(mergedGeom);
@@ -141,22 +146,6 @@ export const handleExport3MF = async (groupRef: React.RefObject<THREE.Group>, ba
           colors.push(child.material.color.getHexString());
         } else {
           colors.push(basePlateColor.replace('#', ''));
-        }
-      } else if (child.name.startsWith('Fault_')) {
-        const geom = child.geometry.clone();
-        geom.applyMatrix4(child.matrixWorld);
-        
-        const mergedGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
-        mergedGeom.computeVertexNormals();
-        
-        geometries.push(mergedGeom);
-        names.push(child.name);
-        groupIds.push(0);
-        
-        if (child.material instanceof THREE.MeshStandardMaterial) {
-          colors.push(child.material.color.getHexString());
-        } else {
-          colors.push('ff0000');
         }
       }
     }
@@ -202,21 +191,6 @@ export const handleExportZIP = async (groupRef: React.RefObject<THREE.Group>) =>
         const geom = prepareGeometryForMerge(child.geometry);
         geom.applyMatrix4(child.matrixWorld);
         baseGeometries.push(geom);
-      } else if (child.name.startsWith('Fault_')) {
-        const geom = child.geometry.clone();
-        geom.applyMatrix4(child.matrixWorld);
-        
-        let finalGeom = BufferGeometryUtils.mergeVertices(geom, 0.1);
-        finalGeom.computeVertexNormals();
-        
-        finalGeom.computeBoundingBox();
-        const bbox = finalGeom.boundingBox!;
-        const center = new THREE.Vector3();
-        bbox.getCenter(center);
-        finalGeom.translate(-center.x, -center.y, -bbox.min.z);
-        
-        geometries.push(finalGeom);
-        names.push(child.name);
       }
     }
   });
